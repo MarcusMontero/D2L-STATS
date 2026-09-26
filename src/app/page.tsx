@@ -10,25 +10,56 @@ import { TeamsStandingsView } from "@/components/teams/TeamsStandingsView";
 import { PlayersRankingsView } from "@/components/players/PlayersRankingsView";
 import { ScheduleView } from "@/components/schedule/ScheduleView";
 import { LeagueSetupView } from "@/components/setup/LeagueSetupView";
+import { LoginPage } from "@/components/auth/LoginPage";
 import { useD2LStore } from "@/store/useD2LStore";
 
 export default function Home() {
+  const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("tracker");
-  const { currentStaff, themeMode } = useD2LStore();
+  const { currentStaff, isAuthenticated, themeMode } = useD2LStore();
 
-  const isStaff = currentStaff.role === "staff";
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const isStaff = currentStaff?.role === "staff";
   const restrictedTabsForStaff = ["teams", "players", "schedule", "setup"];
 
   // Automatically divert staff users to tracker if they are on a restricted tab
   useEffect(() => {
-    if (isStaff && restrictedTabsForStaff.includes(activeTab)) {
+    if (mounted && isAuthenticated && isStaff && restrictedTabsForStaff.includes(activeTab)) {
       setActiveTab("tracker");
     }
-  }, [isStaff, activeTab]);
+  }, [mounted, isAuthenticated, isStaff, activeTab]);
 
   const handleNavigateToBoxScore = (gameId: string) => {
     setActiveTab("box-score");
   };
+
+  // SSR & initial client hydration loading screen
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-d2l-dark text-d2l-gold flex flex-col items-center justify-center gap-3">
+        <div className="w-12 h-12 rounded-xl bg-d2l-panelDark border border-d2l-gold/40 flex items-center justify-center">
+          <img src="/D2L_LOGO.png" alt="D2L Logo" className="h-9 w-auto object-contain" />
+        </div>
+        <span className="font-athletic font-bold text-xs uppercase tracking-widest text-gray-300">
+          Loading D2L Courtside Panel...
+        </span>
+      </div>
+    );
+  }
+
+  // Route Protection: If user is not authenticated, render Login Page exclusively
+  if (!isAuthenticated) {
+    return (
+      <LoginPage
+        onLoginSuccess={(landingTab) => {
+          setActiveTab(landingTab);
+        }}
+      />
+    );
+  }
 
   return (
     <div

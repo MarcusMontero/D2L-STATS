@@ -12,6 +12,7 @@ import {
   Shield,
   RotateCcw,
   Sparkles,
+  LogOut,
 } from "lucide-react";
 import { StaffRole } from "@/lib/types";
 import { TeamLogo } from "@/components/common/TeamLogo";
@@ -31,6 +32,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
     staffList,
     currentStaff,
     setCurrentStaff,
+    logout,
     soundEnabled,
     toggleSound,
     isOnline,
@@ -258,7 +260,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
                     </button>
                   ))}
                 </div>
-                <div className="mt-2 pt-2 border-t border-d2l-borderDark/60 flex justify-between">
+                <div className="mt-2 pt-2 border-t border-d2l-borderDark/60 flex items-center justify-between">
                   <button
                     onClick={() => {
                       if (
@@ -270,14 +272,34 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
                         setIsStaffMenuOpen(false);
                       }
                     }}
-                    className="text-[10px] text-red-400 hover:text-red-300 flex items-center gap-1"
+                    className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1"
                   >
                     <RotateCcw className="w-3 h-3" /> Reset Demo
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setIsStaffMenuOpen(false);
+                      logout();
+                    }}
+                    className="text-[10px] text-rose-400 hover:text-rose-300 font-bold flex items-center gap-1"
+                  >
+                    <LogOut className="w-3 h-3" /> Sign Out
                   </button>
                 </div>
               </div>
             )}
           </div>
+
+          {/* Standalone Sign Out Button */}
+          <button
+            onClick={logout}
+            title="Sign Out of D2L Courtside Control Panel"
+            className="flex items-center gap-1 bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 text-rose-200 px-2 py-1 rounded text-xs font-bold transition ml-1"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
         </div>
       </div>
 
