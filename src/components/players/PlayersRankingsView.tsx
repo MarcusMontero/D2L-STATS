@@ -86,17 +86,22 @@ export const PlayersRankingsView: React.FC = () => {
 
   const handleConfirmDeletePlayer = async () => {
     if (!playerToDelete) return;
+    const targetId = playerToDelete.id;
 
     if (playerToDelete.photoUrl) {
       await deleteImage(playerToDelete.photoUrl, "player-photos");
     }
 
-    deletePlayer(playerToDelete.id);
+    const res = await deletePlayer(targetId);
+    if (!res?.success) {
+      alert(`Failed to delete player from database: ${res?.error || "Unknown error"}`);
+      return;
+    }
 
-    if (selectedPlayerItem?.player.id === playerToDelete.id) {
+    if (selectedPlayerItem?.player.id === targetId) {
       setSelectedPlayerItem(null);
     }
-    if (editingPlayer?.id === playerToDelete.id) {
+    if (editingPlayer?.id === targetId) {
       setEditingPlayer(null);
     }
     setPlayerToDelete(null);

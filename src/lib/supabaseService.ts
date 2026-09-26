@@ -113,6 +113,7 @@ export function mapGameFromDb(row: any): Game {
     awayFouls: row.away_fouls ?? 0,
     officials: row.officials || ["R. Fernandez"],
     quarterScores: qScores,
+    isHistoricalImport: row.is_historical_import ?? false,
   };
 }
 
@@ -135,6 +136,7 @@ export function mapGameToDb(g: Game): any {
     away_fouls: g.awayFouls,
     officials: g.officials,
     quarter_scores: g.quarterScores,
+    is_historical_import: g.isHistoricalImport ?? false,
   };
 }
 
@@ -316,12 +318,50 @@ export async function dbUpdateTeam(id: string, updates: Partial<Team>): Promise<
 
 export async function dbDeleteTeam(id: string): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured) return { success: true };
-  const { error } = await supabase.from("teams").delete().eq("id", id);
-  if (error) {
-    console.error("❌ Supabase dbDeleteTeam error:", error);
-    return { success: false, error: error.message };
+  try {
+    // 1. Delete all stat events referencing this team directly
+    const { error: statTeamErr } = await supabase.from("stat_events").delete().eq("team_id", id);
+    if (statTeamErr) console.warn("Supabase dbDeleteTeam stat_events team_id note:", statTeamErr.message);
+
+    // 2. Find players of this team and delete their stat events (scorer, assist, block, foul)
+    const { data: teamPlayers } = await supabase.from("players").select("id").eq("team_id", id);
+    if (teamPlayers && teamPlayers.length > 0) {
+      const playerIds = teamPlayers.map((p) => p.id);
+      await supabase.from("stat_events").delete().in("player_id", playerIds);
+      await supabase.from("stat_events").delete().in("assist_player_id", playerIds);
+      await supabase.from("stat_events").delete().in("block_player_id", playerIds);
+      await supabase.from("stat_events").delete().in("foul_on_player_id", playerIds);
+    }
+
+    // 3. Delete players of this team
+    const { error: playersErr } = await supabase.from("players").delete().eq("team_id", id);
+    if (playersErr) console.warn("Supabase dbDeleteTeam players note:", playersErr.message);
+
+    // 4. Find all games involving this team (home or away)
+    const { data: teamGames } = await supabase
+      .from("games")
+      .select("id")
+      .or(`home_team_id.eq.${id},away_team_id.eq.${id}`);
+
+    if (teamGames && teamGames.length > 0) {
+      const gameIds = teamGames.map((g) => g.id);
+      await supabase.from("stat_events").delete().in("game_id", gameIds);
+      await supabase.from("games").delete().in("id", gameIds);
+    }
+
+    // 5. Delete the team itself
+    const { error } = await supabase.from("teams").delete().eq("id", id);
+    if (error) {
+      console.error("❌ Supabase dbDeleteTeam error:", error);
+      return { success: false, error: error.message };
+    }
+
+    console.log(`✅ Supabase dbDeleteTeam succeeded for team ${id}`);
+    return { success: true };
+  } catch (err: any) {
+    console.error("❌ Exception in dbDeleteTeam:", err);
+    return { success: false, error: err?.message || "Failed to delete team" };
   }
-  return { success: true };
 }
 
 export async function dbInsertPlayer(player: Player): Promise<{ success: boolean; error?: string }> {
@@ -360,12 +400,26 @@ export async function dbUpdatePlayer(id: string, updates: Partial<Player>): Prom
 
 export async function dbDeletePlayer(id: string): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured) return { success: true };
-  const { error } = await supabase.from("players").delete().eq("id", id);
-  if (error) {
-    console.error("❌ Supabase dbDeletePlayer error:", error);
-    return { success: false, error: error.message };
+  try {
+    // 1. Delete stat events referencing this player
+    await supabase.from("stat_events").delete().eq("player_id", id);
+    await supabase.from("stat_events").delete().eq("assist_player_id", id);
+    await supabase.from("stat_events").delete().eq("block_player_id", id);
+    await supabase.from("stat_events").delete().eq("foul_on_player_id", id);
+
+    // 2. Delete the player row
+    const { error } = await supabase.from("players").delete().eq("id", id);
+    if (error) {
+      console.error("❌ Supabase dbDeletePlayer error:", error);
+      return { success: false, error: error.message };
+    }
+
+    console.log(`✅ Supabase dbDeletePlayer succeeded for player ${id}`);
+    return { success: true };
+  } catch (err: any) {
+    console.error("❌ Exception in dbDeletePlayer:", err);
+    return { success: false, error: err?.message || "Failed to delete player" };
   }
-  return { success: true };
 }
 
 export async function dbInsertGame(game: Game): Promise<{ success: boolean; error?: string }> {
@@ -406,12 +460,23 @@ export async function dbUpdateGame(id: string, updates: Partial<Game>): Promise<
 
 export async function dbDeleteGame(id: string): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured) return { success: true };
-  const { error } = await supabase.from("games").delete().eq("id", id);
-  if (error) {
-    console.error("❌ Supabase dbDeleteGame error:", error);
-    return { success: false, error: error.message };
+  try {
+    // 1. Delete stat events for this game
+    await supabase.from("stat_events").delete().eq("game_id", id);
+
+    // 2. Delete the game
+    const { error } = await supabase.from("games").delete().eq("id", id);
+    if (error) {
+      console.error("❌ Supabase dbDeleteGame error:", error);
+      return { success: false, error: error.message };
+    }
+
+    console.log(`✅ Supabase dbDeleteGame succeeded for game ${id}`);
+    return { success: true };
+  } catch (err: any) {
+    console.error("❌ Exception in dbDeleteGame:", err);
+    return { success: false, error: err?.message || "Failed to delete game" };
   }
-  return { success: true };
 }
 
 export async function dbInsertStatEvent(event: StatEvent): Promise<{ success: boolean; error?: string }> {

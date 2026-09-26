@@ -6,6 +6,7 @@ import { League, Team, Player, StaffUser } from "@/lib/types";
 import { exportPlayersCsv, parsePlayersCsv } from "@/lib/csvHelper";
 import { ImageUploadField } from "@/components/common/ImageUploadField";
 import { ConfirmModal } from "@/components/common/ConfirmModal";
+import { HistoricalImportModal } from "@/components/setup/HistoricalImportModal";
 import { deleteImage } from "@/lib/storageHelper";
 import {
   Settings,
@@ -20,6 +21,7 @@ import {
   KeyRound,
   Lock,
   Check,
+  FileSpreadsheet,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
 import { PlayerAvatar } from "@/components/common/PlayerAvatar";
@@ -54,6 +56,7 @@ export const LeagueSetupView: React.FC = () => {
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [playerToDelete, setPlayerToDelete] = useState<Player | null>(null);
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+  const [isHistoricalImportOpen, setIsHistoricalImportOpen] = useState(false);
 
   // Admin Security PIN Change state
   const [isChangePinOpen, setIsChangePinOpen] = useState(false);
@@ -247,23 +250,29 @@ export const LeagueSetupView: React.FC = () => {
 
   const handleConfirmDeleteTeam = async () => {
     if (!teamToDelete) return;
+    const targetId = teamToDelete.id;
 
     if (teamToDelete.logo) {
       await deleteImage(teamToDelete.logo, "team-logos");
     }
 
-    const teamPlayerList = players.filter((p) => p.teamId === teamToDelete.id);
+    const teamPlayerList = players.filter((p) => p.teamId === targetId);
     for (const p of teamPlayerList) {
       if (p.photoUrl) {
         await deleteImage(p.photoUrl, "player-photos");
       }
     }
 
-    deleteTeam(teamToDelete.id);
-    if (selectedTeamId === teamToDelete.id) {
-      setSelectedTeamId(teams.find((t) => t.id !== teamToDelete.id)?.id || "");
+    const res = await deleteTeam(targetId);
+    if (!res?.success) {
+      alert(`Failed to delete team from database: ${res?.error || "Unknown error"}`);
+      return;
     }
-    if (editingTeam?.id === teamToDelete.id) {
+
+    if (selectedTeamId === targetId) {
+      setSelectedTeamId(teams.find((t) => t.id !== targetId)?.id || "");
+    }
+    if (editingTeam?.id === targetId) {
       setEditingTeam(null);
     }
     setTeamToDelete(null);
@@ -271,13 +280,19 @@ export const LeagueSetupView: React.FC = () => {
 
   const handleConfirmDeletePlayer = async () => {
     if (!playerToDelete) return;
+    const targetId = playerToDelete.id;
 
     if (playerToDelete.photoUrl) {
       await deleteImage(playerToDelete.photoUrl, "player-photos");
     }
 
-    deletePlayer(playerToDelete.id);
-    if (editingPlayer?.id === playerToDelete.id) {
+    const res = await deletePlayer(targetId);
+    if (!res?.success) {
+      alert(`Failed to delete player from database: ${res?.error || "Unknown error"}`);
+      return;
+    }
+
+    if (editingPlayer?.id === targetId) {
       setEditingPlayer(null);
     }
     setPlayerToDelete(null);
@@ -350,6 +365,15 @@ export const LeagueSetupView: React.FC = () => {
           >
             <Plus className="w-4 h-4 text-d2l-gold" />
             <span>New League</span>
+          </button>
+
+          <button
+            onClick={() => setIsHistoricalImportOpen(true)}
+            className="px-3 py-1.5 rounded-lg bg-d2l-cardDark hover:bg-d2l-forest border border-d2l-gold/40 text-xs font-bold text-d2l-gold flex items-center gap-1.5 transition"
+            title="Import past games in bulk via CSV"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Import Past Games</span>
           </button>
         </div>
       </div>
@@ -1222,6 +1246,12 @@ export const LeagueSetupView: React.FC = () => {
         expectedPinHash={currentStaff?.pin || "1234"}
         onConfirm={handleConfirmDeletePlayer}
         onCancel={() => setPlayerToDelete(null)}
+      />
+
+      {/* Historical CSV Import Modal */}
+      <HistoricalImportModal
+        isOpen={isHistoricalImportOpen}
+        onClose={() => setIsHistoricalImportOpen(false)}
       />
     </div>
   );

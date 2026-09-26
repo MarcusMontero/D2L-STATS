@@ -78,6 +78,11 @@ interface D2LState {
   updatePlayer: (id: string, updates: Partial<Player>) => Promise<{ success: boolean; error?: string }>;
   deletePlayer: (id: string) => Promise<{ success: boolean; error?: string }>;
   importPlayersFromCsv: (newPlayers: Player[], teamId?: string) => Promise<void>;
+  importHistoricalGames: (
+    games: Game[],
+    newPlayers: Player[],
+    events: StatEvent[]
+  ) => Promise<{ success: boolean; error?: string }>;
 
   // Actions: Games & Scores
   setActiveGame: (gameId: string) => void;
@@ -250,6 +255,12 @@ export const useD2LStore = create<D2LState>()(
       },
 
       deleteTeam: async (id) => {
+        const res = await dbDeleteTeam(id);
+        if (!res.success) {
+          console.error("Failed to delete team from Supabase:", res.error);
+          return res;
+        }
+
         set((s) => {
           const remainingGames = s.games.filter(
             (g) => g.homeTeamId !== id && g.awayTeamId !== id
@@ -258,7 +269,7 @@ export const useD2LStore = create<D2LState>()(
             .filter((g) => g.homeTeamId === id || g.awayTeamId === id)
             .map((g) => g.id);
           const remainingEvents = s.statEvents.filter(
-            (e) => !deletedGameIds.includes(e.gameId)
+            (e) => !deletedGameIds.includes(e.gameId) && e.teamId !== id
           );
           const nextActiveGameId = deletedGameIds.includes(s.activeGameId)
             ? remainingGames[0]?.id || ""
@@ -272,10 +283,7 @@ export const useD2LStore = create<D2LState>()(
             activeGameId: nextActiveGameId,
           };
         });
-        const res = await dbDeleteTeam(id);
-        if (!res.success) {
-          console.error("Failed to delete team from Supabase:", res.error);
-        }
+
         return res;
       },
 
@@ -300,13 +308,17 @@ export const useD2LStore = create<D2LState>()(
       },
 
       deletePlayer: async (id) => {
-        set((s) => ({
-          players: s.players.filter((p) => p.id !== id),
-        }));
         const res = await dbDeletePlayer(id);
         if (!res.success) {
           console.error("Failed to delete player from Supabase:", res.error);
+          return res;
         }
+
+        set((s) => ({
+          players: s.players.filter((p) => p.id !== id),
+          statEvents: s.statEvents.filter((e) => e.playerId !== id),
+        }));
+
         return res;
       },
 
@@ -320,6 +332,54 @@ export const useD2LStore = create<D2LState>()(
         });
         for (const p of newPlayers) {
           await dbInsertPlayer(p);
+        }
+      },
+
+      importHistoricalGames: async (games, newPlayers, events) => {
+        try {
+          // 1. Persist new auto-created players first (FK dependency)
+          for (const p of newPlayers) {
+            const res = await dbInsertPlayer(p);
+            if (!res.success) {
+              console.warn("⚠️ importHistoricalGames: failed to insert player", p.name, res.error);
+            }
+          }
+
+          // 2. Persist each game
+          for (const g of games) {
+            const res = await dbInsertGame(g);
+            if (!res.success) {
+              console.warn("⚠️ importHistoricalGames: failed to insert game", g.id, res.error);
+            }
+          }
+
+          // 3. Persist synthetic stat_events in batches of 100
+          const BATCH = 100;
+          for (let i = 0; i < events.length; i += BATCH) {
+            const batch = events.slice(i, i + BATCH);
+            await Promise.all(batch.map((e) => dbInsertStatEvent(e)));
+          }
+
+          // 4. Merge into local Zustand state
+          set((s) => ({
+            players: [
+              ...s.players.filter((p) => !newPlayers.some((np) => np.id === p.id)),
+              ...newPlayers,
+            ],
+            games: [
+              ...games,
+              ...s.games.filter((g) => !games.some((ng) => ng.id === g.id)),
+            ],
+            statEvents: [...events, ...s.statEvents],
+          }));
+
+          console.log(
+            `✅ importHistoricalGames: imported ${games.length} games, ${newPlayers.length} new players, ${events.length} stat events`
+          );
+          return { success: true };
+        } catch (err: any) {
+          console.error("❌ importHistoricalGames failed:", err);
+          return { success: false, error: err?.message || "Import failed" };
         }
       },
 
@@ -349,6 +409,12 @@ export const useD2LStore = create<D2LState>()(
       },
 
       deleteGame: async (gameId) => {
+        const res = await dbDeleteGame(gameId);
+        if (!res.success) {
+          console.error("Failed to delete game from Supabase:", res.error);
+          return res;
+        }
+
         set((s) => {
           const remainingGames = s.games.filter((g) => g.id !== gameId);
           const nextActiveGameId =
@@ -359,10 +425,7 @@ export const useD2LStore = create<D2LState>()(
             activeGameId: nextActiveGameId,
           };
         });
-        const res = await dbDeleteGame(gameId);
-        if (!res.success) {
-          console.error("Failed to delete game from Supabase:", res.error);
-        }
+
         return res;
       },
 

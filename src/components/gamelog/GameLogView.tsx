@@ -32,6 +32,22 @@ export const GameLogView: React.FC = () => {
     return <div className="p-8 text-center text-gray-400">No active game selected.</div>;
   }
 
+  // Historical import games have no play-by-play — show a clear message
+  if (game.isHistoricalImport) {
+    return (
+      <div className="p-8 text-center space-y-3">
+        <div className="w-12 h-12 mx-auto rounded-xl bg-d2l-forest/40 border border-d2l-gold/30 flex items-center justify-center">
+          <Clock className="w-6 h-6 text-d2l-gold/60" />
+        </div>
+        <p className="font-athletic font-bold text-white text-sm">No play-by-play available for this game.</p>
+        <p className="text-xs text-gray-400 max-w-xs mx-auto">
+          This game was imported from historical records. Individual stat events were not logged live.
+          Box Score and standings data are still available.
+        </p>
+      </div>
+    );
+  }
+
   // Filter events
   const filteredEvents = events.filter((evt) => {
     if (selectedQuarter !== "ALL" && evt.quarter !== selectedQuarter) return false;

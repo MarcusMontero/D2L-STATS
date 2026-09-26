@@ -53,10 +53,10 @@ create table if not exists players (
 -- 4. GAMES TABLE
 create table if not exists games (
   id text primary key,
-  league_id text references leagues(id) on delete cascade,
+  league_id text references leagues(id) on delete set null,
   season text not null,
-  home_team_id text references teams(id),
-  away_team_id text references teams(id),
+  home_team_id text references teams(id) on delete cascade,
+  away_team_id text references teams(id) on delete cascade,
   home_score integer default 0,
   away_score integer default 0,
   quarter text default 'Q1',
@@ -67,11 +67,9 @@ create table if not exists games (
   venue text default 'Ayala Alabang Village Main Gym',
   home_fouls integer default 0,
   away_fouls integer default 0,
-  home_timeouts integer default 4,
-  away_timeouts integer default 4,
-  possession text default 'neutral',
   officials text[] default array['R. Fernandez'],
   quarter_scores jsonb default '{"home": {"Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0}, "away": {"Q1": 0, "Q2": 0, "Q3": 0, "Q4": 0}}'::jsonb,
+  is_historical_import boolean default false,
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
@@ -79,8 +77,8 @@ create table if not exists games (
 create table if not exists stat_events (
   id text primary key,
   game_id text references games(id) on delete cascade,
-  team_id text references teams(id),
-  player_id text references players(id),
+  team_id text references teams(id) on delete cascade,
+  player_id text references players(id) on delete cascade,
   quarter text not null,
   game_clock text not null,
   stat_type text not null,
@@ -119,16 +117,23 @@ alter table games enable row level security;
 alter table stat_events enable row level security;
 alter table staff_users enable row level security;
 
--- Allow public read on all data
-create policy "Allow public read on all tables" on leagues for select using (true);
-create policy "Allow public read on teams" on teams for select using (true);
-create policy "Allow public read on players" on players for select using (true);
-create policy "Allow public read on games" on games for select using (true);
-create policy "Allow public read on stat_events" on stat_events for select using (true);
-create policy "Allow public read on staff_users" on staff_users for select using (true);
+-- Allow full read / write / delete access for authenticated users & service role
+drop policy if exists "Allow public read on all tables" on leagues;
+drop policy if exists "Allow public read on teams" on teams;
+drop policy if exists "Allow public read on players" on players;
+drop policy if exists "Allow public read on games" on games;
+drop policy if exists "Allow public read on stat_events" on stat_events;
+drop policy if exists "Allow public read on staff_users" on staff_users;
 
--- Allow authenticated / staff operations
-create policy "Allow staff insert on stat_events" on stat_events for all using (true);
-create policy "Allow staff modify on games" on games for all using (true);
-create policy "Allow admin full access" on teams for all using (true);
-create policy "Allow admin full access players" on players for all using (true);
+drop policy if exists "Allow staff insert on stat_events" on stat_events;
+drop policy if exists "Allow staff modify on games" on games;
+drop policy if exists "Allow admin full access" on teams;
+drop policy if exists "Allow admin full access players" on players;
+
+-- Comprehensive RLS policies (SELECT, INSERT, UPDATE, DELETE)
+create policy "leagues_full_access" on leagues for all using (true) with check (true);
+create policy "teams_full_access" on teams for all using (true) with check (true);
+create policy "players_full_access" on players for all using (true) with check (true);
+create policy "games_full_access" on games for all using (true) with check (true);
+create policy "stat_events_full_access" on stat_events for all using (true) with check (true);
+create policy "staff_users_full_access" on staff_users for all using (true) with check (true);

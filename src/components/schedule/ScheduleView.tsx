@@ -161,9 +161,14 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
     setEditingGame(null);
   };
 
-  const handleConfirmDeleteGame = () => {
+  const handleConfirmDeleteGame = async () => {
     if (!gameToDelete) return;
-    deleteGame(gameToDelete.id);
+    const targetId = gameToDelete.id;
+    const res = await deleteGame(targetId);
+    if (!res?.success) {
+      alert(`Failed to delete game: ${res?.error || "Unknown error"}`);
+      return;
+    }
     setGameToDelete(null);
   };
 

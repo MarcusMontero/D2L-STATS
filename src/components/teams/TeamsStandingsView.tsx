@@ -116,6 +116,7 @@ export const TeamsStandingsView: React.FC = () => {
 
   const handleConfirmDeleteTeam = async () => {
     if (!teamToDelete) return;
+    const targetId = teamToDelete.id;
 
     // Remove logo from Supabase storage if applicable
     if (teamToDelete.logo) {
@@ -123,21 +124,25 @@ export const TeamsStandingsView: React.FC = () => {
     }
 
     // Delete player face photos for this team
-    const teamPlayerList = players.filter((p) => p.teamId === teamToDelete.id);
+    const teamPlayerList = players.filter((p) => p.teamId === targetId);
     for (const p of teamPlayerList) {
       if (p.photoUrl) {
         await deleteImage(p.photoUrl, "player-photos");
       }
     }
 
-    // Delete team from store
-    deleteTeam(teamToDelete.id);
+    // Delete team from store & Supabase
+    const res = await deleteTeam(targetId);
+    if (!res?.success) {
+      alert(`Failed to delete team from database: ${res?.error || "Unknown error"}`);
+      return;
+    }
 
-    if (selectedTeam?.id === teamToDelete.id) {
+    if (selectedTeam?.id === targetId) {
       setSelectedTeam(null);
     }
     setTeamToDelete(null);
-    if (editingTeam?.id === teamToDelete.id) {
+    if (editingTeam?.id === targetId) {
       setEditingTeam(null);
     }
   };

@@ -81,6 +81,8 @@ export interface Game {
     home: { Q1: number; Q2: number; Q3: number; Q4: number; OT?: number };
     away: { Q1: number; Q2: number; Q3: number; Q4: number; OT?: number };
   };
+  /** True for games backfilled via CSV historical import (no live play-by-play). */
+  isHistoricalImport?: boolean;
 }
 
 export interface StatEvent {
