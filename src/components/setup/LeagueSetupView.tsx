@@ -4,7 +4,7 @@ import React, { useState, useRef } from "react";
 import { useD2LStore } from "@/store/useD2LStore";
 import { League, Team, Player, StaffUser } from "@/lib/types";
 import { exportPlayersCsv, parsePlayersCsv } from "@/lib/csvHelper";
-import { uploadImage } from "@/lib/storageHelper";
+import { ImageUploadField } from "@/components/common/ImageUploadField";
 import {
   Settings,
   Plus,
@@ -12,9 +12,9 @@ import {
   Download,
   Shield,
   Users,
-  Image as ImageIcon,
+  Edit2,
+  Trash2,
   User,
-  Loader2,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
 import { PlayerAvatar } from "@/components/common/PlayerAvatar";
@@ -27,8 +27,12 @@ export const LeagueSetupView: React.FC = () => {
     addLeague,
     teams,
     addTeam,
+    updateTeam,
+    deleteTeam,
     players,
     addPlayer,
+    updatePlayer,
+    deletePlayer,
     importPlayersFromCsv,
     staffList,
     addStaff,
@@ -37,39 +41,50 @@ export const LeagueSetupView: React.FC = () => {
   const [selectedTeamId, setSelectedTeamId] = useState<string>(teams[0]?.id || "");
   const [isAddLeagueOpen, setIsAddLeagueOpen] = useState(false);
   const [isAddTeamOpen, setIsAddTeamOpen] = useState(false);
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [isAddPlayerOpen, setIsAddPlayerOpen] = useState(false);
+  const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
 
-  // New League state (no division)
+  // New League state
   const [newLeagueName, setNewLeagueName] = useState("");
   const [newLeagueSeason, setNewLeagueSeason] = useState("");
   const [newLeagueLocation, setNewLeagueLocation] = useState("Ayala Alabang Village");
 
-  // New Team state (with file image upload, no division)
+  // New Team state
   const [newTeamName, setNewTeamName] = useState("");
   const [newTeamShort, setNewTeamShort] = useState("");
-  const [newTeamLogoPreview, setNewTeamLogoPreview] = useState<string>("");
-  const [newTeamLogoFile, setNewTeamLogoFile] = useState<File | null>(null);
+  const [newTeamLogoUrl, setNewTeamLogoUrl] = useState<string>("");
 
-  // New Player state (with optional face photo upload)
+  // Edit Team state
+  const [editTeamName, setEditTeamName] = useState("");
+  const [editTeamShort, setEditTeamShort] = useState("");
+  const [editTeamLogoUrl, setEditTeamLogoUrl] = useState<string>("");
+
+  // New Player state
   const [newPlayerName, setNewPlayerName] = useState("");
   const [newPlayerJersey, setNewPlayerJersey] = useState("0");
   const [newPlayerPosition, setNewPlayerPosition] = useState<"PG" | "SG" | "SF" | "PF" | "C">("SG");
   const [newPlayerHeight, setNewPlayerHeight] = useState("6'1\"");
   const [newPlayerHometown, setNewPlayerHometown] = useState("Ayala Alabang Village");
-  const [newPlayerPhotoPreview, setNewPlayerPhotoPreview] = useState<string>("");
-  const [newPlayerPhotoFile, setNewPlayerPhotoFile] = useState<File | null>(null);
+  const [newPlayerPhotoUrl, setNewPlayerPhotoUrl] = useState<string>("");
 
-  // New Staff state (simplified 2-role system: 'admin' or 'staff')
+  // Edit Player state
+  const [editPlayerName, setEditPlayerName] = useState("");
+  const [editPlayerJersey, setEditPlayerJersey] = useState("0");
+  const [editPlayerPosition, setEditPlayerPosition] = useState<"PG" | "SG" | "SF" | "PF" | "C">("SG");
+  const [editPlayerHeight, setEditPlayerHeight] = useState("6'1\"");
+  const [editPlayerHometown, setEditPlayerHometown] = useState("Ayala Alabang Village");
+  const [editPlayerPhotoUrl, setEditPlayerPhotoUrl] = useState<string>("");
+  const [editPlayerIsStarter, setEditPlayerIsStarter] = useState(false);
+
+  // New Staff state
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
   const [newStaffRole, setNewStaffRole] = useState<"admin" | "staff">("staff");
   const [newStaffPin, setNewStaffPin] = useState("1234");
 
   const rosterFileInputRef = useRef<HTMLInputElement>(null);
-  const teamLogoInputRef = useRef<HTMLInputElement>(null);
-  const playerPhotoInputRef = useRef<HTMLInputElement>(null);
 
   const activeLeague = leagues.find((l) => l.id === activeLeagueId) || leagues[0];
   const currentTeam = teams.find((t) => t.id === selectedTeamId) || teams[0];
@@ -93,45 +108,16 @@ export const LeagueSetupView: React.FC = () => {
     setNewLeagueName("");
   };
 
-  const handleTeamLogoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setNewTeamLogoFile(file);
-    const objectUrl = URL.createObjectURL(file);
-    setNewTeamLogoPreview(objectUrl);
-  };
-
-  const handlePlayerPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setNewPlayerPhotoFile(file);
-    const objectUrl = URL.createObjectURL(file);
-    setNewPlayerPhotoPreview(objectUrl);
-  };
-
-  const handleCreateTeam = async (e: React.FormEvent) => {
+  const handleCreateTeam = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTeamName.trim()) return;
-
-    setIsUploading(true);
-    let logoUrl = "https://images.unsplash.com/photo-1546519638-68e109498ffc?w=120&auto=format&fit=crop&q=80";
-
-    try {
-      if (newTeamLogoFile) {
-        logoUrl = await uploadImage(newTeamLogoFile, "team-logos");
-      }
-    } catch (err) {
-      console.error("Team logo upload failed:", err);
-    } finally {
-      setIsUploading(false);
-    }
 
     const newTeam: Team = {
       id: `team-${Date.now()}`,
       leagueId: activeLeague.id,
       name: newTeamName,
       shortName: (newTeamShort || newTeamName.slice(0, 4)).toUpperCase(),
-      logo: logoUrl,
+      logo: newTeamLogoUrl || "",
       primaryColor: "#0B3B24",
       secondaryColor: "#D4AF37",
       wins: 0,
@@ -146,26 +132,33 @@ export const LeagueSetupView: React.FC = () => {
     setIsAddTeamOpen(false);
     setNewTeamName("");
     setNewTeamShort("");
-    setNewTeamLogoPreview("");
-    setNewTeamLogoFile(null);
+    setNewTeamLogoUrl("");
   };
 
-  const handleCreatePlayer = async (e: React.FormEvent) => {
+  const handleOpenEditTeam = (t: Team, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditingTeam(t);
+    setEditTeamName(t.name);
+    setEditTeamShort(t.shortName);
+    setEditTeamLogoUrl(t.logo || "");
+  };
+
+  const handleSaveEditTeam = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTeam) return;
+
+    updateTeam(editingTeam.id, {
+      name: editTeamName,
+      shortName: editTeamShort.toUpperCase(),
+      logo: editTeamLogoUrl,
+    });
+
+    setEditingTeam(null);
+  };
+
+  const handleCreatePlayer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlayerName.trim()) return;
-
-    setIsUploading(true);
-    let photoUrl = "";
-
-    try {
-      if (newPlayerPhotoFile) {
-        photoUrl = await uploadImage(newPlayerPhotoFile, "player-photos");
-      }
-    } catch (err) {
-      console.error("Player photo upload failed:", err);
-    } finally {
-      setIsUploading(false);
-    }
 
     const player: Player = {
       id: `p-${Date.now()}`,
@@ -179,7 +172,7 @@ export const LeagueSetupView: React.FC = () => {
       weight: "185 lbs",
       age: 26,
       hometown: newPlayerHometown,
-      photoUrl: photoUrl || undefined,
+      photoUrl: newPlayerPhotoUrl || undefined,
       isStarter: false,
       isActive: true,
     };
@@ -187,8 +180,37 @@ export const LeagueSetupView: React.FC = () => {
     addPlayer(player);
     setIsAddPlayerOpen(false);
     setNewPlayerName("");
-    setNewPlayerPhotoPreview("");
-    setNewPlayerPhotoFile(null);
+    setNewPlayerPhotoUrl("");
+  };
+
+  const handleOpenEditPlayer = (p: Player) => {
+    setEditingPlayer(p);
+    setEditPlayerName(p.name);
+    setEditPlayerJersey(p.jerseyNumber.toString());
+    setEditPlayerPosition(p.position);
+    setEditPlayerHeight(p.height);
+    setEditPlayerHometown(p.hometown);
+    setEditPlayerPhotoUrl(p.photoUrl || "");
+    setEditPlayerIsStarter(p.isStarter);
+  };
+
+  const handleSaveEditPlayer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPlayer) return;
+
+    updatePlayer(editingPlayer.id, {
+      name: editPlayerName,
+      firstName: editPlayerName.split(" ")[0] || "Player",
+      lastName: editPlayerName.split(" ").slice(1).join(" ") || "",
+      jerseyNumber: parseInt(editPlayerJersey, 10) || 0,
+      position: editPlayerPosition,
+      height: editPlayerHeight,
+      hometown: editPlayerHometown,
+      photoUrl: editPlayerPhotoUrl || undefined,
+      isStarter: editPlayerIsStarter,
+    });
+
+    setEditingPlayer(null);
   };
 
   const handleRosterCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -270,7 +292,12 @@ export const LeagueSetupView: React.FC = () => {
               <Shield className="w-4 h-4 text-d2l-gold" /> Teams ({teams.length})
             </h3>
             <button
-              onClick={() => setIsAddTeamOpen(true)}
+              onClick={() => {
+                setNewTeamName("");
+                setNewTeamShort("");
+                setNewTeamLogoUrl("");
+                setIsAddTeamOpen(true);
+              }}
               className="px-2 py-1 rounded bg-d2l-orange hover:bg-d2l-orangeHover text-white text-[10px] font-athletic font-bold uppercase flex items-center gap-1"
             >
               <Plus className="w-3 h-3" /> Add Team
@@ -286,22 +313,32 @@ export const LeagueSetupView: React.FC = () => {
                 <div
                   key={t.id}
                   onClick={() => setSelectedTeamId(t.id)}
-                  className={`p-2.5 rounded-lg cursor-pointer transition flex items-center justify-between ${
+                  className={`p-2.5 rounded-lg cursor-pointer transition flex items-center justify-between group ${
                     isSelected
                       ? "bg-d2l-forest text-white border border-d2l-gold/50"
                       : "hover:bg-d2l-cardDark text-gray-300"
                   }`}
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
                     <TeamLogo logo={t.logo} name={t.name} size="sm" />
-                    <div>
-                      <div className="font-athletic font-bold text-sm text-white">{t.name}</div>
+                    <div className="truncate">
+                      <div className="font-athletic font-bold text-sm text-white truncate">{t.name}</div>
                       <div className="text-[10px] text-gray-400">{t.shortName}</div>
                     </div>
                   </div>
-                  <span className="text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded text-d2l-gold">
-                    {count} players
-                  </span>
+
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded text-d2l-gold">
+                      {count}p
+                    </span>
+                    <button
+                      onClick={(e) => handleOpenEditTeam(t, e)}
+                      title="Edit Team Logo & Info"
+                      className="p-1 rounded text-gray-400 hover:text-d2l-gold hover:bg-black/40 transition"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -347,7 +384,11 @@ export const LeagueSetupView: React.FC = () => {
               />
 
               <button
-                onClick={() => setIsAddPlayerOpen(true)}
+                onClick={() => {
+                  setNewPlayerName("");
+                  setNewPlayerPhotoUrl("");
+                  setIsAddPlayerOpen(true);
+                }}
                 className="px-3 py-1 rounded bg-d2l-orange hover:bg-d2l-orangeHover text-white text-xs font-athletic font-bold uppercase flex items-center gap-1"
               >
                 <Plus className="w-3.5 h-3.5" />
@@ -367,17 +408,24 @@ export const LeagueSetupView: React.FC = () => {
                   <th className="py-2 px-2">Height / Wt</th>
                   <th className="py-2 px-3">Hometown / Enclave</th>
                   <th className="py-2 px-2 text-center">Starter</th>
+                  <th className="py-2 px-3 text-right">Edit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-d2l-forest/30">
                 {teamPlayers.map((p) => (
-                  <tr key={p.id} className="hover:bg-d2l-forest/20 transition">
+                  <tr
+                    key={p.id}
+                    onClick={() => handleOpenEditPlayer(p)}
+                    className="hover:bg-d2l-forest/20 transition cursor-pointer group"
+                  >
                     <td className="py-2.5 px-3 font-athletic font-black text-sm text-d2l-gold">
                       #{p.jerseyNumber}
                     </td>
                     <td className="py-2.5 px-3 flex items-center gap-2.5">
                       <PlayerAvatar photoUrl={p.photoUrl} name={p.name} size="xs" />
-                      <span className="font-semibold text-white">{p.name}</span>
+                      <span className="font-semibold text-white group-hover:text-d2l-gold transition">
+                        {p.name}
+                      </span>
                     </td>
                     <td className="py-2.5 px-2 text-center font-mono font-bold text-d2l-goldLight">
                       {p.position}
@@ -397,6 +445,17 @@ export const LeagueSetupView: React.FC = () => {
                         {p.isStarter ? "YES" : "NO"}
                       </span>
                     </td>
+                    <td className="py-2.5 px-3 text-right">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenEditPlayer(p);
+                        }}
+                        className="p-1 rounded text-gray-400 hover:text-d2l-gold hover:bg-black/30 transition"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -405,7 +464,7 @@ export const LeagueSetupView: React.FC = () => {
         </div>
       </div>
 
-      {/* Staff Accounts & Collaboration Roles (Simplified to 2 Roles: System Admin & Staff) */}
+      {/* Staff Accounts & Collaboration Roles */}
       <div className="bg-d2l-panelDark rounded-xl border border-d2l-borderDark p-4 shadow-xl">
         <div className="flex items-center justify-between pb-3 border-b border-d2l-borderDark mb-3">
           <div>
@@ -457,7 +516,7 @@ export const LeagueSetupView: React.FC = () => {
         </div>
       </div>
 
-      {/* Add League Modal */}
+      {/* 1. ADD LEAGUE MODAL */}
       {isAddLeagueOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
           <form
@@ -505,7 +564,7 @@ export const LeagueSetupView: React.FC = () => {
         </div>
       )}
 
-      {/* Add Team Modal (With Image File Upload) */}
+      {/* 2. ADD TEAM MODAL (With ImageUploadField) */}
       {isAddTeamOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
           <form
@@ -539,50 +598,16 @@ export const LeagueSetupView: React.FC = () => {
               />
             </div>
 
-            {/* Team Logo Image Upload Field */}
-            <div>
-              <label className="text-xs text-gray-300 block mb-1 font-bold flex items-center gap-1.5">
-                <ImageIcon className="w-4 h-4 text-d2l-gold" /> Team Logo (Attach PNG or JPG File)
-              </label>
-
-              <div className="mt-1.5 flex items-center gap-3 bg-d2l-cardDark border border-d2l-borderDark rounded-xl p-3">
-                {/* Logo Preview */}
-                <div className="shrink-0">
-                  {newTeamLogoPreview ? (
-                    <img
-                      src={newTeamLogoPreview}
-                      alt="Logo preview"
-                      className="w-12 h-12 rounded-full object-cover border-2 border-d2l-gold"
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-full bg-d2l-court border border-d2l-forestLight flex items-center justify-center text-gray-500">
-                      <Shield className="w-6 h-6" />
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => teamLogoInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-lg bg-d2l-forest hover:bg-d2l-forestLight border border-d2l-gold/40 text-xs font-athletic font-bold text-white flex items-center gap-1.5"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-d2l-gold" />
-                    <span>Browse Logo File</span>
-                  </button>
-                  <span className="text-[10px] text-gray-400 block mt-1">
-                    {newTeamLogoFile ? newTeamLogoFile.name : "PNG, JPG up to 5MB (Uploads to Supabase)"}
-                  </span>
-                </div>
-                <input
-                  ref={teamLogoInputRef}
-                  type="file"
-                  accept="image/png, image/jpeg, image/webp"
-                  onChange={handleTeamLogoChange}
-                  className="hidden"
-                />
-              </div>
-            </div>
+            {/* Reusable Image Upload Field for Team Logo */}
+            <ImageUploadField
+              value={newTeamLogoUrl}
+              onChange={(url) => setNewTeamLogoUrl(url)}
+              bucket="team-logos"
+              label="Team Logo Image"
+              fallbackType="team"
+              fallbackName={newTeamName || "Team"}
+              hint="Attach PNG or JPG logo (Uploads to Supabase Storage)"
+            />
 
             <div className="flex justify-end gap-2 pt-2 border-t border-d2l-borderDark">
               <button
@@ -594,18 +619,103 @@ export const LeagueSetupView: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={isUploading}
-                className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase flex items-center gap-1.5"
+                className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase"
               >
-                {isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Add Team</span>
+                Add Team
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Add Player Modal (With Optional Face Photo Upload) */}
+      {/* 3. EDIT TEAM MODAL (With ImageUploadField Replace & Remove) */}
+      {editingTeam && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
+          <form
+            onSubmit={handleSaveEditTeam}
+            className="bg-d2l-panelDark border-2 border-d2l-gold/60 rounded-xl p-5 max-w-md w-full space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-d2l-borderDark pb-2">
+              <h3 className="font-athletic font-bold text-lg text-white flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-d2l-gold" /> Edit Team: {editingTeam.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingTeam(null)}
+                className="text-xs text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 block mb-1 font-bold">Team Name</label>
+              <input
+                type="text"
+                value={editTeamName}
+                onChange={(e) => setEditTeamName(e.target.value)}
+                className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 block mb-1 font-bold">Short Name</label>
+              <input
+                type="text"
+                value={editTeamShort}
+                onChange={(e) => setEditTeamShort(e.target.value)}
+                className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white uppercase font-mono"
+              />
+            </div>
+
+            {/* Reusable Image Upload Field for Replace / Remove with confirmation */}
+            <ImageUploadField
+              value={editTeamLogoUrl}
+              onChange={(url) => setEditTeamLogoUrl(url)}
+              bucket="team-logos"
+              label="Team Logo Badge"
+              fallbackType="team"
+              fallbackName={editTeamName}
+              hint="Replace with a new logo or remove to revert to gold initials badge"
+            />
+
+            <div className="flex justify-between items-center pt-2 border-t border-d2l-borderDark">
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Delete entire team "${editingTeam.name}" and its roster?`)) {
+                    deleteTeam(editingTeam.id);
+                    setEditingTeam(null);
+                  }
+                }}
+                className="text-red-400 hover:text-red-300 text-xs font-bold flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Team</span>
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTeam(null)}
+                  className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 4. ADD PLAYER MODAL (With ImageUploadField) */}
       {isAddPlayerOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
           <form
@@ -675,50 +785,17 @@ export const LeagueSetupView: React.FC = () => {
               </div>
             </div>
 
-            {/* Optional Face Photo Upload */}
-            <div>
-              <label className="text-xs text-gray-300 block mb-1 font-bold flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <ImageIcon className="w-4 h-4 text-d2l-gold" /> Player Photo (Optional)
-                </span>
-                <span className="text-[10px] text-gray-400 font-normal">Falls back to initials if skipped</span>
-              </label>
-
-              <div className="mt-1 flex items-center gap-3 bg-d2l-cardDark border border-d2l-borderDark rounded-xl p-3">
-                <div className="shrink-0">
-                  {newPlayerPhotoPreview ? (
-                    <img
-                      src={newPlayerPhotoPreview}
-                      alt="Player preview"
-                      className="w-12 h-12 rounded-full object-cover border-2 border-d2l-gold"
-                    />
-                  ) : (
-                    <PlayerAvatar name={newPlayerName || "Player"} size="md" />
-                  )}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <button
-                    type="button"
-                    onClick={() => playerPhotoInputRef.current?.click()}
-                    className="px-3 py-1.5 rounded-lg bg-d2l-forest hover:bg-d2l-forestLight border border-d2l-gold/40 text-xs font-athletic font-bold text-white flex items-center gap-1.5"
-                  >
-                    <Upload className="w-3.5 h-3.5 text-d2l-gold" />
-                    <span>Browse Face Photo</span>
-                  </button>
-                  <span className="text-[10px] text-gray-400 block mt-1">
-                    {newPlayerPhotoFile ? newPlayerPhotoFile.name : "Optional PNG/JPG"}
-                  </span>
-                </div>
-                <input
-                  ref={playerPhotoInputRef}
-                  type="file"
-                  accept="image/png, image/jpeg, image/webp"
-                  onChange={handlePlayerPhotoChange}
-                  className="hidden"
-                />
-              </div>
-            </div>
+            {/* Reusable Image Upload Field for Player Photo */}
+            <ImageUploadField
+              value={newPlayerPhotoUrl}
+              onChange={(url) => setNewPlayerPhotoUrl(url)}
+              bucket="player-photos"
+              label="Player Face Photo (Optional)"
+              fallbackType="player"
+              fallbackName={newPlayerName || "Player"}
+              jerseyNumber={parseInt(newPlayerJersey, 10) || 0}
+              hint="Attach face photo or skip to use initials avatar"
+            />
 
             <div className="flex justify-end gap-2 pt-2 border-t border-d2l-borderDark">
               <button
@@ -730,18 +807,155 @@ export const LeagueSetupView: React.FC = () => {
               </button>
               <button
                 type="submit"
-                disabled={isUploading}
-                className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase flex items-center gap-1.5"
+                className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase"
               >
-                {isUploading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Save Player</span>
+                Save Player
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* Add Staff Modal (Simplified 2 Roles: System Admin & Staff) */}
+      {/* 5. EDIT PLAYER MODAL (With ImageUploadField Replace & Remove) */}
+      {editingPlayer && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
+          <form
+            onSubmit={handleSaveEditPlayer}
+            className="bg-d2l-panelDark border-2 border-d2l-gold/60 rounded-xl p-5 max-w-md w-full space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-d2l-borderDark pb-2">
+              <h3 className="font-athletic font-bold text-lg text-white flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-d2l-gold" /> Edit Player: #{editingPlayer.jerseyNumber} {editingPlayer.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingPlayer(null)}
+                className="text-xs text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 block mb-1 font-bold">Full Name</label>
+              <input
+                type="text"
+                value={editPlayerName}
+                onChange={(e) => setEditPlayerName(e.target.value)}
+                className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
+                required
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1 font-bold">Jersey Number</label>
+                <input
+                  type="number"
+                  value={editPlayerJersey}
+                  onChange={(e) => setEditPlayerJersey(e.target.value)}
+                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1 font-bold">Position</label>
+                <select
+                  value={editPlayerPosition}
+                  onChange={(e) => setEditPlayerPosition(e.target.value as any)}
+                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
+                >
+                  <option value="PG">Point Guard (PG)</option>
+                  <option value="SG">Shooting Guard (SG)</option>
+                  <option value="SF">Small Forward (SF)</option>
+                  <option value="PF">Power Forward (PF)</option>
+                  <option value="C">Center (C)</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1 font-bold">Height</label>
+                <input
+                  type="text"
+                  value={editPlayerHeight}
+                  onChange={(e) => setEditPlayerHeight(e.target.value)}
+                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1 font-bold">Hometown</label>
+                <input
+                  type="text"
+                  value={editPlayerHometown}
+                  onChange={(e) => setEditPlayerHometown(e.target.value)}
+                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
+                />
+              </div>
+            </div>
+
+            {/* Starter Status Toggle */}
+            <div className="flex items-center gap-2 p-2 bg-d2l-court/60 rounded-lg border border-d2l-borderDark">
+              <input
+                type="checkbox"
+                id="editStarter"
+                checked={editPlayerIsStarter}
+                onChange={(e) => setEditPlayerIsStarter(e.target.checked)}
+                className="w-4 h-4 rounded text-d2l-orange focus:ring-d2l-orange"
+              />
+              <label htmlFor="editStarter" className="text-xs text-white font-bold cursor-pointer">
+                Designated Team Starter
+              </label>
+            </div>
+
+            {/* Reusable Image Upload Field for Replace / Remove photo with confirmation */}
+            <ImageUploadField
+              value={editPlayerPhotoUrl}
+              onChange={(url) => setEditPlayerPhotoUrl(url)}
+              bucket="player-photos"
+              label="Player Face Photo"
+              fallbackType="player"
+              fallbackName={editPlayerName}
+              jerseyNumber={parseInt(editPlayerJersey, 10) || 0}
+              hint="Replace with a new photo or remove to revert to initials avatar"
+            />
+
+            <div className="flex justify-between items-center pt-2 border-t border-d2l-borderDark">
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Remove player "${editingPlayer.name}" from roster?`)) {
+                    deletePlayer(editingPlayer.id);
+                    setEditingPlayer(null);
+                  }
+                }}
+                className="text-red-400 hover:text-red-300 text-xs font-bold flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Player</span>
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingPlayer(null)}
+                  className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* 6. ADD STAFF MODAL */}
       {isAddStaffOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
           <form

@@ -10,7 +10,6 @@ export async function uploadImage(
   file: File,
   bucket: "team-logos" | "player-photos" = "team-logos"
 ): Promise<string> {
-  // Always prepare local data URL first for instant offline preview & local storage
   const localDataUrl = await fileToDataUrl(file);
 
   if (!isSupabaseConfigured) {
@@ -39,6 +38,30 @@ export async function uploadImage(
   } catch (err) {
     console.warn("Upload exception, falling back to local data URL:", err);
     return localDataUrl;
+  }
+}
+
+/**
+ * Deletes an image from Supabase Storage if it's a Supabase URL.
+ */
+export async function deleteImage(
+  url: string,
+  bucket: "team-logos" | "player-photos"
+): Promise<boolean> {
+  if (!url || !isSupabaseConfigured) return true;
+
+  try {
+    // Extract file path from Supabase storage URL if applicable
+    if (url.includes(`/storage/v1/object/public/${bucket}/`)) {
+      const path = url.split(`/storage/v1/object/public/${bucket}/`)[1];
+      if (path) {
+        await supabase.storage.from(bucket).remove([path]);
+      }
+    }
+    return true;
+  } catch (err) {
+    console.warn("Error deleting image from Supabase:", err);
+    return false;
   }
 }
 
