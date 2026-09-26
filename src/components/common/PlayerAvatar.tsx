@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { User } from "lucide-react";
 
 interface PlayerAvatarProps {
@@ -19,6 +19,11 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   className = "",
 }) => {
   const [hasError, setHasError] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const sizeMap = {
     xs: { wrap: "w-6 h-6", text: "text-[9px]", icon: "w-3.5 h-3.5" },
@@ -35,6 +40,18 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
     }
     return n.slice(0, 2).toUpperCase() || "P";
   };
+
+  const renderPlaceholder = () => (
+    <div
+      title={name}
+      className={`shrink-0 rounded-full bg-gradient-to-br from-d2l-forest via-d2l-court to-black border border-d2l-gold/50 flex items-center justify-center font-athletic font-black text-d2l-gold select-none shadow-sm ${sizeMap[size].wrap} ${sizeMap[size].text} ${className}`}
+    >
+      <span>{getInitials(name)}</span>
+    </div>
+  );
+
+  // Before mount: always render the initials placeholder so server and client agree
+  if (!mounted) return renderPlaceholder();
 
   const isImageAvailable = photoUrl && photoUrl.trim() !== "" && !hasError;
 
@@ -53,15 +70,5 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
     );
   }
 
-  // Fallback: Initials or Silhouette with D2L Gold / Forest Green accent
-  const initials = getInitials(name);
-
-  return (
-    <div
-      title={name}
-      className={`shrink-0 rounded-full bg-gradient-to-br from-d2l-forest via-d2l-court to-black border border-d2l-gold/50 flex items-center justify-center font-athletic font-black text-d2l-gold select-none shadow-sm ${sizeMap[size].wrap} ${sizeMap[size].text} ${className}`}
-    >
-      <span>{initials}</span>
-    </div>
-  );
+  return renderPlaceholder();
 };

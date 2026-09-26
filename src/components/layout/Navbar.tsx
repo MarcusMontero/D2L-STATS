@@ -40,7 +40,6 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
 
   const [isStaffMenuOpen, setIsStaffMenuOpen] = useState(false);
   const [isGameMenuOpen, setIsGameMenuOpen] = useState(false);
-  const [crestError, setCrestError] = useState(false);
 
   const activeGame = getActiveGame();
   const { homeTeam, awayTeam } = getGameTeams();
@@ -90,20 +89,11 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
         >
           {/* Static D2L Crest Logo */}
           <div className="relative h-10 w-10 shrink-0 flex items-center justify-center">
-            {!crestError ? (
-              <img
-                src="/d2l-crest.png"
-                alt="D2L Crest Logo"
-                onError={() => setCrestError(true)}
-                className="h-10 w-auto max-w-[42px] object-contain drop-shadow-md"
-              />
-            ) : (
-              <img
-                src="/d2l-crest.svg"
-                alt="D2L Crest Vector"
-                className="h-10 w-auto max-w-[42px] object-contain drop-shadow-md"
-              />
-            )}
+            <img
+              src="/d2l-logo.png"
+              alt="D2L Crest Logo"
+              className="h-10 w-auto max-w-[42px] object-contain drop-shadow-md"
+            />
           </div>
 
           <div className="hidden sm:block">
