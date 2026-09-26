@@ -55,10 +55,6 @@ export interface Player {
   firstName: string;
   lastName: string;
   position: "PG" | "SG" | "SF" | "PF" | "C";
-  height: string; // e.g., "6'1\""
-  weight: string; // e.g., "185 lbs"
-  age: number;
-  hometown: string; // e.g. "Ayala Alabang (Narra St.)"
   photoUrl?: string; // Optional face photo URL / data URI
   isStarter: boolean;
   isActive: boolean;
@@ -80,9 +76,6 @@ export interface Game {
   venue: string; // e.g., "Ayala Alabang Village Main Court"
   homeFouls: number;
   awayFouls: number;
-  homeTimeouts: number;
-  awayTimeouts: number;
-  possession: "home" | "away" | "neutral";
   officials: string[];
   quarterScores: {
     home: { Q1: number; Q2: number; Q3: number; Q4: number; OT?: number };

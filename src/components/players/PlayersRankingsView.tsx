@@ -29,8 +29,6 @@ export const PlayersRankingsView: React.FC = () => {
   const [editPlayerName, setEditPlayerName] = useState("");
   const [editPlayerJersey, setEditPlayerJersey] = useState("0");
   const [editPlayerPosition, setEditPlayerPosition] = useState<"PG" | "SG" | "SF" | "PF" | "C">("SG");
-  const [editPlayerHeight, setEditPlayerHeight] = useState("6'1\"");
-  const [editPlayerHometown, setEditPlayerHometown] = useState("Ayala Alabang Village");
   const [editPlayerPhotoUrl, setEditPlayerPhotoUrl] = useState<string>("");
   const [editPlayerIsStarter, setEditPlayerIsStarter] = useState(false);
 
@@ -51,8 +49,6 @@ export const PlayersRankingsView: React.FC = () => {
     setEditPlayerName(player.name);
     setEditPlayerJersey(player.jerseyNumber.toString());
     setEditPlayerPosition(player.position);
-    setEditPlayerHeight(player.height);
-    setEditPlayerHometown(player.hometown);
     setEditPlayerPhotoUrl(player.photoUrl || "");
     setEditPlayerIsStarter(player.isStarter);
   };
@@ -67,8 +63,6 @@ export const PlayersRankingsView: React.FC = () => {
       lastName: editPlayerName.split(" ").slice(1).join(" ") || "",
       jerseyNumber: parseInt(editPlayerJersey, 10) || 0,
       position: editPlayerPosition,
-      height: editPlayerHeight,
-      hometown: editPlayerHometown,
       photoUrl: editPlayerPhotoUrl || undefined,
       isStarter: editPlayerIsStarter,
     });
@@ -81,8 +75,6 @@ export const PlayersRankingsView: React.FC = () => {
           name: editPlayerName,
           jerseyNumber: parseInt(editPlayerJersey, 10) || 0,
           position: editPlayerPosition,
-          height: editPlayerHeight,
-          hometown: editPlayerHometown,
           photoUrl: editPlayerPhotoUrl || undefined,
           isStarter: editPlayerIsStarter,
         },
@@ -259,7 +251,17 @@ export const PlayersRankingsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-d2l-forest/30">
-              {filteredLeaderboard.map((item, idx) => {
+              {filteredLeaderboard.length === 0 ? (
+                <tr>
+                  <td colSpan={12} className="py-12 text-center text-gray-400 font-medium text-xs">
+                    <div className="space-y-1">
+                      <p className="font-athletic font-bold text-sm text-gray-300">No players registered in the league yet.</p>
+                      <p className="text-gray-500 text-[11px]">Add players to team rosters in League Setup or import via CSV.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                filteredLeaderboard.map((item, idx) => {
                 return (
                   <tr
                     key={item.player.id}
@@ -280,7 +282,6 @@ export const PlayersRankingsView: React.FC = () => {
                         <div className="font-athletic font-bold text-sm text-white group-hover:text-d2l-gold transition">
                           #{item.player.jerseyNumber} {item.player.name}
                         </div>
-                        <div className="text-[10px] text-gray-400">{item.player.height} • {item.player.weight}</div>
                       </div>
                     </td>
                     <td className="py-3 px-2 font-medium text-gray-300">
@@ -344,7 +345,8 @@ export const PlayersRankingsView: React.FC = () => {
                     </td>
                   </tr>
                 );
-              })}
+              })
+            )}
             </tbody>
           </table>
         </div>
@@ -407,20 +409,14 @@ export const PlayersRankingsView: React.FC = () => {
             </div>
 
             {/* Bio Details */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-d2l-court/60 p-3 rounded-xl border border-d2l-borderDark text-xs">
+            <div className="grid grid-cols-2 gap-2 bg-d2l-court/60 p-3 rounded-xl border border-d2l-borderDark text-xs">
               <div>
-                <span className="text-gray-400 text-[10px] block">Age</span>
-                <span className="font-bold text-white">{selectedPlayerItem.player.age} yrs</span>
+                <span className="text-gray-400 text-[10px] block">Position</span>
+                <span className="font-bold text-d2l-gold">{selectedPlayerItem.player.position}</span>
               </div>
               <div>
-                <span className="text-gray-400 text-[10px] block">Height / Weight</span>
-                <span className="font-bold text-white">{selectedPlayerItem.player.height} • {selectedPlayerItem.player.weight}</span>
-              </div>
-              <div className="col-span-2">
-                <span className="text-gray-400 text-[10px] block">Hometown / Residency</span>
-                <span className="font-bold text-d2l-gold flex items-center gap-1">
-                  <MapPin className="w-3 h-3" /> {selectedPlayerItem.player.hometown}
-                </span>
+                <span className="text-gray-400 text-[10px] block">Roster Status</span>
+                <span className="font-bold text-white">{selectedPlayerItem.player.isStarter ? "Starter" : "Bench"}</span>
               </div>
             </div>
 
@@ -529,27 +525,6 @@ export const PlayersRankingsView: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-400 block mb-1 font-bold">Height</label>
-                <input
-                  type="text"
-                  value={editPlayerHeight}
-                  onChange={(e) => setEditPlayerHeight(e.target.value)}
-                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 block mb-1 font-bold">Hometown</label>
-                <input
-                  type="text"
-                  value={editPlayerHometown}
-                  onChange={(e) => setEditPlayerHometown(e.target.value)}
-                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
-                />
-              </div>
-            </div>
-
             <div className="flex items-center gap-2 p-2 bg-d2l-court/60 rounded-lg border border-d2l-borderDark">
               <input
                 type="checkbox"
@@ -621,6 +596,8 @@ export const PlayersRankingsView: React.FC = () => {
         confirmText="Delete Player"
         cancelText="Cancel"
         variant="danger"
+        requirePin={true}
+        expectedPinHash={currentStaff.pin}
         onConfirm={handleConfirmDeletePlayer}
         onCancel={() => setPlayerToDelete(null)}
       />

@@ -10,7 +10,6 @@ import {
   WifiOff,
   ChevronDown,
   Shield,
-  RotateCcw,
   Sparkles,
   LogOut,
 } from "lucide-react";
@@ -37,7 +36,6 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
     toggleSound,
     isOnline,
     pendingSyncCount,
-    resetAllDataToDefault,
   } = useD2LStore();
 
   const [isStaffMenuOpen, setIsStaffMenuOpen] = useState(false);
@@ -260,23 +258,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
                     </button>
                   ))}
                 </div>
-                <div className="mt-2 pt-2 border-t border-d2l-borderDark/60 flex items-center justify-between">
-                  <button
-                    onClick={() => {
-                      if (
-                        confirm(
-                          "Reset all test stats & return to initial Ayala Alabang league state?"
-                        )
-                      ) {
-                        resetAllDataToDefault();
-                        setIsStaffMenuOpen(false);
-                      }
-                    }}
-                    className="text-[10px] text-gray-400 hover:text-white flex items-center gap-1"
-                  >
-                    <RotateCcw className="w-3 h-3" /> Reset Demo
-                  </button>
-
+                <div className="mt-2 pt-2 border-t border-d2l-borderDark/60 flex items-center justify-end">
                   <button
                     onClick={() => {
                       setIsStaffMenuOpen(false);

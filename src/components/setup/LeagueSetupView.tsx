@@ -17,6 +17,9 @@ import {
   Edit2,
   Trash2,
   User,
+  KeyRound,
+  Lock,
+  Check,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
 import { PlayerAvatar } from "@/components/common/PlayerAvatar";
@@ -38,6 +41,8 @@ export const LeagueSetupView: React.FC = () => {
     importPlayersFromCsv,
     staffList,
     addStaff,
+    currentStaff,
+    updateAdminPin,
   } = useD2LStore();
 
   const [selectedTeamId, setSelectedTeamId] = useState<string>(teams[0]?.id || "");
@@ -49,6 +54,13 @@ export const LeagueSetupView: React.FC = () => {
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
   const [playerToDelete, setPlayerToDelete] = useState<Player | null>(null);
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
+
+  // Admin Security PIN Change state
+  const [isChangePinOpen, setIsChangePinOpen] = useState(false);
+  const [newPinInput, setNewPinInput] = useState("");
+  const [confirmPinInput, setConfirmPinInput] = useState("");
+  const [pinChangeError, setPinChangeError] = useState<string | null>(null);
+  const [pinChangeSuccess, setPinChangeSuccess] = useState(false);
 
   // New League state
   const [newLeagueName, setNewLeagueName] = useState("");
@@ -69,16 +81,12 @@ export const LeagueSetupView: React.FC = () => {
   const [newPlayerName, setNewPlayerName] = useState("");
   const [newPlayerJersey, setNewPlayerJersey] = useState("0");
   const [newPlayerPosition, setNewPlayerPosition] = useState<"PG" | "SG" | "SF" | "PF" | "C">("SG");
-  const [newPlayerHeight, setNewPlayerHeight] = useState("6'1\"");
-  const [newPlayerHometown, setNewPlayerHometown] = useState("Ayala Alabang Village");
   const [newPlayerPhotoUrl, setNewPlayerPhotoUrl] = useState<string>("");
 
   // Edit Player state
   const [editPlayerName, setEditPlayerName] = useState("");
   const [editPlayerJersey, setEditPlayerJersey] = useState("0");
   const [editPlayerPosition, setEditPlayerPosition] = useState<"PG" | "SG" | "SF" | "PF" | "C">("SG");
-  const [editPlayerHeight, setEditPlayerHeight] = useState("6'1\"");
-  const [editPlayerHometown, setEditPlayerHometown] = useState("Ayala Alabang Village");
   const [editPlayerPhotoUrl, setEditPlayerPhotoUrl] = useState<string>("");
   const [editPlayerIsStarter, setEditPlayerIsStarter] = useState(false);
 
@@ -160,6 +168,34 @@ export const LeagueSetupView: React.FC = () => {
     setEditingTeam(null);
   };
 
+  const handleChangePin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinChangeError(null);
+    setPinChangeSuccess(false);
+
+    if (newPinInput.length < 4) {
+      setPinChangeError("PIN must be at least 4 digits.");
+      return;
+    }
+    if (newPinInput !== confirmPinInput) {
+      setPinChangeError("PINs do not match.");
+      return;
+    }
+
+    try {
+      await updateAdminPin(newPinInput);
+      setPinChangeSuccess(true);
+      setTimeout(() => {
+        setIsChangePinOpen(false);
+        setPinChangeSuccess(false);
+        setNewPinInput("");
+        setConfirmPinInput("");
+      }, 1500);
+    } catch {
+      setPinChangeError("Failed to update security PIN.");
+    }
+  };
+
   const handleCreatePlayer = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newPlayerName.trim()) return;
@@ -172,10 +208,6 @@ export const LeagueSetupView: React.FC = () => {
       firstName: newPlayerName.split(" ")[0] || "Player",
       lastName: newPlayerName.split(" ").slice(1).join(" ") || "",
       position: newPlayerPosition,
-      height: newPlayerHeight,
-      weight: "185 lbs",
-      age: 26,
-      hometown: newPlayerHometown,
       photoUrl: newPlayerPhotoUrl || undefined,
       isStarter: false,
       isActive: true,
@@ -192,8 +224,6 @@ export const LeagueSetupView: React.FC = () => {
     setEditPlayerName(p.name);
     setEditPlayerJersey(p.jerseyNumber.toString());
     setEditPlayerPosition(p.position);
-    setEditPlayerHeight(p.height);
-    setEditPlayerHometown(p.hometown);
     setEditPlayerPhotoUrl(p.photoUrl || "");
     setEditPlayerIsStarter(p.isStarter);
   };
@@ -208,8 +238,6 @@ export const LeagueSetupView: React.FC = () => {
       lastName: editPlayerName.split(" ").slice(1).join(" ") || "",
       jerseyNumber: parseInt(editPlayerJersey, 10) || 0,
       position: editPlayerPosition,
-      height: editPlayerHeight,
-      hometown: editPlayerHometown,
       photoUrl: editPlayerPhotoUrl || undefined,
       isStarter: editPlayerIsStarter,
     });
@@ -348,7 +376,12 @@ export const LeagueSetupView: React.FC = () => {
           </div>
 
           <div className="divide-y divide-d2l-forest/30 overflow-y-auto max-h-[420px] p-1">
-            {teams.map((t) => {
+            {teams.length === 0 ? (
+              <div className="p-6 text-center text-gray-400 text-xs">
+                No teams created yet. Click "+ Add Team" above to create your first team.
+              </div>
+            ) : (
+              teams.map((t) => {
               const isSelected = selectedTeamId === t.id;
               const count = players.filter((p) => p.teamId === t.id).length;
 
@@ -394,7 +427,8 @@ export const LeagueSetupView: React.FC = () => {
                   </div>
                 </div>
               );
-            })}
+            })
+          )}
           </div>
         </div>
 
@@ -458,14 +492,21 @@ export const LeagueSetupView: React.FC = () => {
                   <th className="py-2 px-3">#</th>
                   <th className="py-2 px-3">Player Photo & Name</th>
                   <th className="py-2 px-2 text-center">Pos</th>
-                  <th className="py-2 px-2">Height / Wt</th>
-                  <th className="py-2 px-3">Hometown / Enclave</th>
                   <th className="py-2 px-2 text-center">Starter</th>
                   <th className="py-2 px-3 text-right">Edit</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-d2l-forest/30">
-                {teamPlayers.map((p) => (
+                {teamPlayers.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-10 text-center text-gray-400 text-xs">
+                      {teams.length === 0
+                        ? "Create a team first to manage player rosters."
+                        : "No players added to this team yet. Click '+ Add Player' or 'Import CSV'."}
+                    </td>
+                  </tr>
+                ) : (
+                  teamPlayers.map((p) => (
                   <tr
                     key={p.id}
                     onClick={() => handleOpenEditPlayer(p)}
@@ -483,10 +524,6 @@ export const LeagueSetupView: React.FC = () => {
                     <td className="py-2.5 px-2 text-center font-mono font-bold text-d2l-goldLight">
                       {p.position}
                     </td>
-                    <td className="py-2.5 px-2 text-gray-300">
-                      {p.height} • {p.weight}
-                    </td>
-                    <td className="py-2.5 px-3 text-gray-400">{p.hometown}</td>
                     <td className="py-2.5 px-2 text-center">
                       <span
                         className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -523,7 +560,8 @@ export const LeagueSetupView: React.FC = () => {
                       </div>
                     </td>
                   </tr>
-                ))}
+                ))
+              )}
               </tbody>
             </table>
           </div>
@@ -541,13 +579,28 @@ export const LeagueSetupView: React.FC = () => {
               Two Roles: <strong>System Admin</strong> (full management) and <strong>Staff</strong> (Live Stat Tracker, Game Log, and Box Score only).
             </p>
           </div>
-          <button
-            onClick={() => setIsAddStaffOpen(true)}
-            className="px-3 py-1.5 rounded-lg bg-d2l-forest hover:bg-d2l-forestLight border border-d2l-borderDark text-xs font-bold text-white flex items-center gap-1"
-          >
-            <Plus className="w-4 h-4 text-d2l-gold" />
-            <span>Add Staff Account</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setNewPinInput("");
+                setConfirmPinInput("");
+                setPinChangeError(null);
+                setPinChangeSuccess(false);
+                setIsChangePinOpen(true);
+              }}
+              className="px-3 py-1.5 rounded-lg bg-d2l-cardDark hover:bg-d2l-forest border border-d2l-borderDark text-xs font-bold text-d2l-gold flex items-center gap-1.5"
+            >
+              <KeyRound className="w-4 h-4 text-d2l-gold" />
+              <span>Change Security PIN</span>
+            </button>
+            <button
+              onClick={() => setIsAddStaffOpen(true)}
+              className="px-3 py-1.5 rounded-lg bg-d2l-forest hover:bg-d2l-forestLight border border-d2l-borderDark text-xs font-bold text-white flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4 text-d2l-gold" />
+              <span>Add Staff Account</span>
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -825,27 +878,6 @@ export const LeagueSetupView: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-400 block mb-1 font-bold">Height</label>
-                <input
-                  type="text"
-                  value={newPlayerHeight}
-                  onChange={(e) => setNewPlayerHeight(e.target.value)}
-                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 block mb-1 font-bold">Hometown / Enclave</label>
-                <input
-                  type="text"
-                  value={newPlayerHometown}
-                  onChange={(e) => setNewPlayerHometown(e.target.value)}
-                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
-                />
-              </div>
-            </div>
-
             {/* Reusable Image Upload Field for Player Photo */}
             <ImageUploadField
               value={newPlayerPhotoUrl}
@@ -931,27 +963,6 @@ export const LeagueSetupView: React.FC = () => {
                   <option value="PF">Power Forward (PF)</option>
                   <option value="C">Center (C)</option>
                 </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-gray-400 block mb-1 font-bold">Height</label>
-                <input
-                  type="text"
-                  value={editPlayerHeight}
-                  onChange={(e) => setEditPlayerHeight(e.target.value)}
-                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 block mb-1 font-bold">Hometown</label>
-                <input
-                  type="text"
-                  value={editPlayerHometown}
-                  onChange={(e) => setEditPlayerHometown(e.target.value)}
-                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
-                />
               </div>
             </div>
 
@@ -1084,6 +1095,87 @@ export const LeagueSetupView: React.FC = () => {
         </div>
       )}
 
+      {/* 7. CHANGE ADMIN PIN MODAL */}
+      {isChangePinOpen && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3 animate-fadeIn">
+          <form
+            onSubmit={handleChangePin}
+            className="bg-d2l-panelDark border-2 border-d2l-gold/60 rounded-xl p-5 max-w-sm w-full space-y-4 shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-d2l-borderDark pb-2">
+              <h3 className="font-athletic font-bold text-base text-white flex items-center gap-2">
+                <Lock className="w-5 h-5 text-d2l-gold" /> Change Security PIN
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsChangePinOpen(false)}
+                className="text-xs text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-400 leading-relaxed">
+              Set a new 4-6 digit security PIN for authorizing destructive actions like deleting teams or players.
+            </p>
+
+            {pinChangeError && (
+              <div className="p-2.5 bg-rose-950/80 border border-rose-500/50 rounded-lg text-rose-300 text-xs font-semibold">
+                {pinChangeError}
+              </div>
+            )}
+
+            {pinChangeSuccess && (
+              <div className="p-2.5 bg-emerald-950/80 border border-emerald-500/50 rounded-lg text-emerald-300 text-xs font-semibold flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-400" /> Security PIN updated successfully!
+              </div>
+            )}
+
+            <div>
+              <label className="text-xs text-gray-300 block mb-1 font-bold">New Security PIN</label>
+              <input
+                type="password"
+                maxLength={6}
+                value={newPinInput}
+                onChange={(e) => setNewPinInput(e.target.value.replace(/\D/g, ""))}
+                placeholder="4 to 6 digits"
+                className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-center text-lg tracking-widest font-mono text-d2l-gold focus:border-d2l-gold focus:outline-none"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-300 block mb-1 font-bold">Confirm PIN</label>
+              <input
+                type="password"
+                maxLength={6}
+                value={confirmPinInput}
+                onChange={(e) => setConfirmPinInput(e.target.value.replace(/\D/g, ""))}
+                placeholder="Re-enter PIN"
+                className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-center text-lg tracking-widest font-mono text-d2l-gold focus:border-d2l-gold focus:outline-none"
+                required
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-d2l-borderDark">
+              <button
+                type="button"
+                onClick={() => setIsChangePinOpen(false)}
+                className="px-3.5 py-1.5 rounded-lg bg-gray-800 text-gray-300 text-xs font-bold"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-1.5 rounded-lg bg-d2l-orange hover:bg-d2l-orangeHover text-white text-xs font-athletic font-bold uppercase transition"
+              >
+                Save PIN
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Delete Team Custom Confirmation Modal */}
       <ConfirmModal
         isOpen={Boolean(teamToDelete)}
@@ -1103,6 +1195,8 @@ export const LeagueSetupView: React.FC = () => {
         confirmText="Delete Team & Roster"
         cancelText="Cancel"
         variant="danger"
+        requirePin={true}
+        expectedPinHash={currentStaff?.pin || "1234"}
         onConfirm={handleConfirmDeleteTeam}
         onCancel={() => setTeamToDelete(null)}
       />
@@ -1124,6 +1218,8 @@ export const LeagueSetupView: React.FC = () => {
         confirmText="Delete Player"
         cancelText="Cancel"
         variant="danger"
+        requirePin={true}
+        expectedPinHash={currentStaff?.pin || "1234"}
         onConfirm={handleConfirmDeletePlayer}
         onCancel={() => setPlayerToDelete(null)}
       />

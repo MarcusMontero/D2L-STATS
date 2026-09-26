@@ -110,9 +110,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
       venue: newVenue,
       homeFouls: 0,
       awayFouls: 0,
-      homeTimeouts: 4,
-      awayTimeouts: 4,
-      possession: "neutral",
       officials: ["R. Fernandez", "M. Dizon"],
       quarterScores: {
         home: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
@@ -265,6 +262,16 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
           )}
         </div>
       </div>
+
+      {Object.keys(gamesByMonth).length === 0 && (
+        <div className="bg-d2l-panelDark border border-d2l-borderDark rounded-xl p-8 sm:p-12 text-center space-y-3 shadow-lg">
+          <CalendarDays className="w-10 h-10 text-d2l-gold mx-auto opacity-70" />
+          <h3 className="font-athletic font-bold text-white text-base">No Games Scheduled Yet</h3>
+          <p className="text-gray-400 text-xs max-w-sm mx-auto">
+            {isAdmin ? "Use the 'Add Game' button above or import a CSV schedule to add games to the calendar." : "No games have been scheduled for this season yet."}
+          </p>
+        </div>
+      )}
 
       {/* Month Grouped Games */}
       {Object.entries(gamesByMonth).map(([month, monthGames]) => (

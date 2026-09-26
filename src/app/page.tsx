@@ -12,15 +12,149 @@ import { ScheduleView } from "@/components/schedule/ScheduleView";
 import { LeagueSetupView } from "@/components/setup/LeagueSetupView";
 import { LoginPage } from "@/components/auth/LoginPage";
 import { useD2LStore } from "@/store/useD2LStore";
+import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { StaffRole, StaffUser } from "@/lib/types";
+
+import { mapTeamFromDb, mapPlayerFromDb, mapGameFromDb, mapStatEventFromDb } from "@/lib/supabaseService";
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("tracker");
-  const { currentStaff, isAuthenticated, themeMode } = useD2LStore();
+  const { currentStaff, isAuthenticated, themeMode, loadFromSupabase } = useD2LStore();
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+
+    // Initial auth verification against Supabase Auth
+    if (isSupabaseConfigured) {
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (error || !session?.user) {
+          useD2LStore.setState({ isAuthenticated: false });
+        } else {
+          const user = session.user;
+          const userEmail = user.email?.toLowerCase() || "";
+          const userRole = (user.user_metadata?.role as StaffRole) || (userEmail.includes("admin") || userEmail.includes("marcus") ? "admin" : "staff");
+          const staff: StaffUser = {
+            id: user.id,
+            name: user.user_metadata?.name || userEmail.split("@")[0],
+            email: userEmail,
+            role: userRole,
+            pin: "2026",
+            avatar: user.user_metadata?.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+          };
+          useD2LStore.setState({ isAuthenticated: true, currentStaff: staff });
+          loadFromSupabase();
+        }
+      });
+
+      // Listen to auth state changes (sign in, sign out, token refresh)
+      const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+        if (event === "SIGNED_OUT" || !session) {
+          useD2LStore.setState({ isAuthenticated: false });
+        } else if (event === "SIGNED_IN" && session?.user) {
+          const user = session.user;
+          const userEmail = user.email?.toLowerCase() || "";
+          const userRole = (user.user_metadata?.role as StaffRole) || (userEmail.includes("admin") || userEmail.includes("marcus") ? "admin" : "staff");
+          const staff: StaffUser = {
+            id: user.id,
+            name: user.user_metadata?.name || userEmail.split("@")[0],
+            email: userEmail,
+            role: userRole,
+            pin: "2026",
+            avatar: user.user_metadata?.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+          };
+          useD2LStore.setState({ isAuthenticated: true, currentStaff: staff });
+          loadFromSupabase();
+        }
+      });
+
+      // Listen for Supabase Realtime changes — merge individual rows instead of
+      // calling loadFromSupabase() which can wipe optimistic state if Supabase
+      // returns 0 rows in a race-condition window right after an insert.
+      const channel = supabase
+        .channel("public-db-changes")
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "teams" },
+          (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            useD2LStore.setState((s) => {
+              if (eventType === "DELETE") {
+                return { teams: s.teams.filter((t) => t.id !== (oldRow as any).id) };
+              }
+              if (eventType === "INSERT" || eventType === "UPDATE") {
+                const mapped = mapTeamFromDb(newRow);
+                const exists = s.teams.some((t) => t.id === mapped.id);
+                return { teams: exists ? s.teams.map((t) => t.id === mapped.id ? mapped : t) : [...s.teams, mapped] };
+              }
+              return {};
+            });
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "players" },
+          (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            useD2LStore.setState((s) => {
+              if (eventType === "DELETE") {
+                return { players: s.players.filter((p) => p.id !== (oldRow as any).id) };
+              }
+              if (eventType === "INSERT" || eventType === "UPDATE") {
+                const mapped = mapPlayerFromDb(newRow);
+                const exists = s.players.some((p) => p.id === mapped.id);
+                return { players: exists ? s.players.map((p) => p.id === mapped.id ? mapped : p) : [...s.players, mapped] };
+              }
+              return {};
+            });
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "games" },
+          (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            useD2LStore.setState((s) => {
+              if (eventType === "DELETE") {
+                return { games: s.games.filter((g) => g.id !== (oldRow as any).id) };
+              }
+              if (eventType === "INSERT" || eventType === "UPDATE") {
+                const mapped = mapGameFromDb(newRow);
+                const exists = s.games.some((g) => g.id === mapped.id);
+                return { games: exists ? s.games.map((g) => g.id === mapped.id ? mapped : g) : [mapped, ...s.games] };
+              }
+              return {};
+            });
+          }
+        )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "stat_events" },
+          (payload) => {
+            const { eventType, new: newRow, old: oldRow } = payload;
+            useD2LStore.setState((s) => {
+              if (eventType === "DELETE") {
+                return { statEvents: s.statEvents.filter((e) => e.id !== (oldRow as any).id) };
+              }
+              if (eventType === "INSERT" || eventType === "UPDATE") {
+                const mapped = mapStatEventFromDb(newRow);
+                const exists = s.statEvents.some((e) => e.id === mapped.id);
+                return { statEvents: exists ? s.statEvents.map((e) => e.id === mapped.id ? mapped : e) : [mapped, ...s.statEvents] };
+              }
+              return {};
+            });
+          }
+        )
+        .subscribe();
+
+      return () => {
+        authListener?.subscription.unsubscribe();
+        supabase.removeChannel(channel);
+      };
+    } else {
+      loadFromSupabase();
+    }
+  }, [loadFromSupabase]);
 
   const isStaff = currentStaff?.role === "staff";
   const restrictedTabsForStaff = ["teams", "players", "schedule", "setup"];

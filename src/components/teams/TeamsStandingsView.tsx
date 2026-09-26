@@ -185,7 +185,17 @@ export const TeamsStandingsView: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-d2l-forest/30">
-              {sortedTeams.map((team, idx) => {
+              {sortedTeams.length === 0 ? (
+                <tr>
+                  <td colSpan={11} className="py-12 text-center text-gray-400 font-medium text-xs">
+                    <div className="space-y-1">
+                      <p className="font-athletic font-bold text-sm text-gray-300">No teams registered in the league yet.</p>
+                      <p className="text-gray-500 text-[11px]">Add teams in the League Setup tab to start tracking standings.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                sortedTeams.map((team, idx) => {
                 const total = team.wins + team.losses || 1;
                 const winPct = ((team.wins / total) * 100).toFixed(1);
                 const ppg = (team.pointsFor / total).toFixed(1);
@@ -262,7 +272,8 @@ export const TeamsStandingsView: React.FC = () => {
                     </td>
                   </tr>
                 );
-              })}
+              })
+            )}
             </tbody>
           </table>
         </div>
@@ -352,10 +363,9 @@ export const TeamsStandingsView: React.FC = () => {
                       <PlayerAvatar photoUrl={p.photoUrl} name={p.name} size="xs" />
                       <div>
                         <span className="font-semibold text-white">{p.name}</span>
-                        <span className="text-[10px] text-gray-400 ml-2 font-mono">{p.position} • {p.height}</span>
+                        <span className="text-[10px] text-gray-400 ml-2 font-mono">{p.position}</span>
                       </div>
                     </div>
-                    <span className="text-[10px] text-gray-400">{p.hometown}</span>
                   </div>
                 ))}
               </div>
@@ -464,6 +474,8 @@ export const TeamsStandingsView: React.FC = () => {
         confirmText="Delete Team & Roster"
         cancelText="Cancel"
         variant="danger"
+        requirePin={true}
+        expectedPinHash={currentStaff.pin}
         onConfirm={handleConfirmDeleteTeam}
         onCancel={() => setTeamToDelete(null)}
       />

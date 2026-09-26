@@ -13,16 +13,25 @@ import {
   PlayerBoxStat,
   PlayerLeaderboardItem,
 } from "../lib/types";
-import {
-  INITIAL_LEAGUES,
-  INITIAL_TEAMS,
-  INITIAL_PLAYERS,
-  INITIAL_GAMES,
-  INITIAL_STAT_EVENTS,
-  INITIAL_STAFF,
-} from "../lib/mockData";
 import { soundFX, triggerHaptic } from "../lib/sound";
-import { broadcastD2LEvent, queueEventForSync, removeFromOfflineQueue, supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { broadcastD2LEvent, supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { hashPin } from "../lib/pinHelper";
+import {
+  fetchAllLeagueData,
+  dbInsertTeam,
+  dbUpdateTeam,
+  dbDeleteTeam,
+  dbInsertPlayer,
+  dbUpdatePlayer,
+  dbDeletePlayer,
+  dbInsertGame,
+  dbUpdateGame,
+  dbDeleteGame,
+  dbInsertStatEvent,
+  dbDeleteStatEvent,
+  dbInsertStaff,
+  dbUpdateStaffPin,
+} from "../lib/supabaseService";
 
 interface D2LState {
   // Active state
@@ -34,6 +43,7 @@ interface D2LState {
   activeGameId: string;
   statEvents: StatEvent[];
   undoStack: StatEvent[];
+  isDataLoaded: boolean;
   
   // On court status: teamId -> playerIds currently on floor
   onCourtPlayerIds: Record<string, string[]>;
@@ -43,7 +53,8 @@ interface D2LState {
   currentStaff: StaffUser;
   isAuthenticated: boolean;
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string; role?: StaffRole }>;
-  logout: () => void;
+  logout: () => Promise<void>;
+  updateAdminPin: (newPin: string) => Promise<boolean>;
   
   // Settings & UI state
   soundEnabled: boolean;
@@ -52,33 +63,30 @@ interface D2LState {
   isOnline: boolean;
   pendingSyncCount: number;
 
+  // Supabase live sync
+  loadFromSupabase: () => Promise<void>;
+
   // Actions: Leagues & Teams
   setActiveLeague: (leagueId: string) => void;
   addLeague: (league: League) => void;
-  addTeam: (team: Team) => void;
-  updateTeam: (id: string, updates: Partial<Team>) => void;
-  deleteTeam: (id: string) => void;
+  addTeam: (team: Team) => Promise<{ success: boolean; error?: string }>;
+  updateTeam: (id: string, updates: Partial<Team>) => Promise<{ success: boolean; error?: string }>;
+  deleteTeam: (id: string) => Promise<{ success: boolean; error?: string }>;
 
   // Actions: Players
-  addPlayer: (player: Player) => void;
-  updatePlayer: (id: string, updates: Partial<Player>) => void;
-  deletePlayer: (id: string) => void;
-  importPlayersFromCsv: (newPlayers: Player[], teamId?: string) => void;
+  addPlayer: (player: Player) => Promise<{ success: boolean; error?: string }>;
+  updatePlayer: (id: string, updates: Partial<Player>) => Promise<{ success: boolean; error?: string }>;
+  deletePlayer: (id: string) => Promise<{ success: boolean; error?: string }>;
+  importPlayersFromCsv: (newPlayers: Player[], teamId?: string) => Promise<void>;
 
-  // Actions: Games & Clock
+  // Actions: Games & Scores
   setActiveGame: (gameId: string) => void;
-  addGame: (game: Game) => void;
-  updateGame: (gameId: string, updates: Partial<Game>) => void;
-  deleteGame: (gameId: string) => void;
-  toggleClock: () => void;
-  setClockRunning: (running: boolean) => void;
-  adjustClockSeconds: (delta: number) => void;
-  setClockSeconds: (seconds: number) => void;
+  addGame: (game: Game) => Promise<{ success: boolean; error?: string }>;
+  updateGame: (gameId: string, updates: Partial<Game>) => Promise<{ success: boolean; error?: string }>;
+  deleteGame: (gameId: string) => Promise<{ success: boolean; error?: string }>;
   setGameQuarter: (quarter: Quarter) => void;
   setGameScore: (homeScore: number, awayScore: number) => void;
   setGameStatus: (status: Game["status"]) => void;
-  setPossession: (possession: Game["possession"]) => void;
-  adjustTimeouts: (teamSide: "home" | "away", delta: number) => void;
 
   // Actions: On-court Substitutions
   togglePlayerOnCourt: (teamId: string, playerId: string) => void;
@@ -105,7 +113,6 @@ interface D2LState {
   addStaff: (staff: StaffUser) => void;
   toggleSound: () => void;
   toggleTheme: () => void;
-  resetAllDataToDefault: () => void;
   syncOfflineQueue: () => void;
 
   // Computed Selectors
@@ -122,32 +129,40 @@ interface D2LState {
   getPlayerLeaderboard: (statKey: "ppg" | "rpg" | "apg" | "bpg" | "spg" | "fgPct") => PlayerLeaderboardItem[];
 }
 
-// Initial on-court starters map from mock data
-const buildInitialOnCourt = (): Record<string, string[]> => {
-  const map: Record<string, string[]> = {};
-  INITIAL_PLAYERS.forEach((p) => {
-    if (!map[p.teamId]) map[p.teamId] = [];
-    if (p.isStarter && map[p.teamId].length < 5) {
-      map[p.teamId].push(p.id);
-    }
-  });
-  return map;
+const DEFAULT_LEAGUES: League[] = [
+  {
+    id: "d2l-s10",
+    name: "District 2 League (D2L)",
+    season: "Season 10 - 2026",
+    location: "Ayala Alabang Village Main Gym, Muntinlupa City",
+    isActive: true,
+  },
+];
+
+const DEFAULT_STAFF: StaffUser = {
+  id: "staff-default",
+  name: "Courtside Staff",
+  email: "staff@d2league.ph",
+  role: "admin",
+  pin: "2026",
+  avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
 };
 
 export const useD2LStore = create<D2LState>()(
   persist(
     (set, get) => ({
-      leagues: INITIAL_LEAGUES,
+      leagues: DEFAULT_LEAGUES,
       activeLeagueId: "d2l-s10",
-      teams: INITIAL_TEAMS,
-      players: INITIAL_PLAYERS,
-      games: INITIAL_GAMES,
-      activeGameId: "game-live-101",
-      statEvents: INITIAL_STAT_EVENTS,
+      teams: [],
+      players: [],
+      games: [],
+      activeGameId: "",
+      statEvents: [],
       undoStack: [],
-      onCourtPlayerIds: buildInitialOnCourt(),
-      staffList: INITIAL_STAFF,
-      currentStaff: INITIAL_STAFF[0],
+      isDataLoaded: false,
+      onCourtPlayerIds: {},
+      staffList: [],
+      currentStaff: DEFAULT_STAFF,
       isAuthenticated: false,
       soundEnabled: true,
       hapticsEnabled: true,
@@ -155,18 +170,86 @@ export const useD2LStore = create<D2LState>()(
       isOnline: true,
       pendingSyncCount: 0,
 
+      loadFromSupabase: async () => {
+        try {
+          const dbData = await fetchAllLeagueData();
+          
+          set((s) => {
+            // Leagues: always use Supabase data if available, otherwise keep existing or use defaults
+            const leagues = dbData.leagues.length > 0 ? dbData.leagues : s.leagues.length > 0 ? s.leagues : DEFAULT_LEAGUES;
+
+            // For teams/players/games/statEvents: ONLY replace if Supabase returned rows.
+            // If Supabase returns 0 rows (e.g. RLS block, network issue, or race condition
+            // before a just-inserted row propagates), keep the current optimistic state.
+            // This prevents inserts from being visually wiped out.
+            const teams = dbData.teams.length > 0 ? dbData.teams : s.teams;
+            const players = dbData.players.length > 0 ? dbData.players : s.players;
+            const games = dbData.games.length > 0 ? dbData.games : s.games;
+            const statEvents = dbData.statEvents.length > 0 ? dbData.statEvents : s.statEvents;
+
+            // For staffList, only update when Supabase returned data
+            const staffList = dbData.staffList.length > 0 ? dbData.staffList : s.staffList;
+
+            // Preserve active game or pick first available game
+            let activeGameId = s.activeGameId;
+            if ((!activeGameId || !games.some((g) => g.id === activeGameId)) && games.length > 0) {
+              const liveGame = games.find((g) => g.status === "live");
+              activeGameId = liveGame ? liveGame.id : games[0].id;
+            }
+
+            // Populate onCourt starters map if not already set
+            const onCourt = { ...s.onCourtPlayerIds };
+            teams.forEach((t) => {
+              if (!onCourt[t.id] || onCourt[t.id].length === 0) {
+                const teamStarters = players.filter((p) => p.teamId === t.id && p.isStarter).slice(0, 5).map((p) => p.id);
+                if (teamStarters.length > 0) {
+                  onCourt[t.id] = teamStarters;
+                }
+              }
+            });
+
+            return {
+              leagues,
+              teams,
+              players,
+              games,
+              statEvents,
+              staffList,
+              activeGameId,
+              onCourtPlayerIds: onCourt,
+              isDataLoaded: true,
+            };
+          });
+        } catch (err) {
+          console.error("Failed to load data from Supabase:", err);
+        }
+      },
+
       setActiveLeague: (leagueId) => set({ activeLeagueId: leagueId }),
 
       addLeague: (league) => set((s) => ({ leagues: [...s.leagues, league] })),
 
-      addTeam: (team) => set((s) => ({ teams: [...s.teams, team] })),
+      addTeam: async (team) => {
+        set((s) => ({ teams: [...s.teams.filter((t) => t.id !== team.id), team] }));
+        const res = await dbInsertTeam(team);
+        if (!res.success) {
+          console.error("Failed to insert team to Supabase:", res.error);
+        }
+        return res;
+      },
 
-      updateTeam: (id, updates) =>
+      updateTeam: async (id, updates) => {
         set((s) => ({
           teams: s.teams.map((t) => (t.id === id ? { ...t, ...updates } : t)),
-        })),
+        }));
+        const res = await dbUpdateTeam(id, updates);
+        if (!res.success) {
+          console.error("Failed to update team in Supabase:", res.error);
+        }
+        return res;
+      },
 
-      deleteTeam: (id) =>
+      deleteTeam: async (id) => {
         set((s) => {
           const remainingGames = s.games.filter(
             (g) => g.homeTeamId !== id && g.awayTeamId !== id
@@ -188,39 +271,84 @@ export const useD2LStore = create<D2LState>()(
             statEvents: remainingEvents,
             activeGameId: nextActiveGameId,
           };
-        }),
+        });
+        const res = await dbDeleteTeam(id);
+        if (!res.success) {
+          console.error("Failed to delete team from Supabase:", res.error);
+        }
+        return res;
+      },
 
-      addPlayer: (player) => set((s) => ({ players: [...s.players, player] })),
+      addPlayer: async (player) => {
+        set((s) => ({ players: [...s.players.filter((p) => p.id !== player.id), player] }));
+        const res = await dbInsertPlayer(player);
+        if (!res.success) {
+          console.error("Failed to insert player to Supabase:", res.error);
+        }
+        return res;
+      },
 
-      updatePlayer: (id, updates) =>
+      updatePlayer: async (id, updates) => {
         set((s) => ({
           players: s.players.map((p) => (p.id === id ? { ...p, ...updates } : p)),
-        })),
+        }));
+        const res = await dbUpdatePlayer(id, updates);
+        if (!res.success) {
+          console.error("Failed to update player in Supabase:", res.error);
+        }
+        return res;
+      },
 
-      deletePlayer: (id) =>
+      deletePlayer: async (id) => {
         set((s) => ({
           players: s.players.filter((p) => p.id !== id),
-        })),
+        }));
+        const res = await dbDeletePlayer(id);
+        if (!res.success) {
+          console.error("Failed to delete player from Supabase:", res.error);
+        }
+        return res;
+      },
 
-      importPlayersFromCsv: (newPlayers, teamId) =>
+      importPlayersFromCsv: async (newPlayers, teamId) => {
         set((s) => {
           let updated = [...s.players];
           if (teamId) {
             updated = updated.filter((p) => p.teamId !== teamId);
           }
           return { players: [...updated, ...newPlayers] };
-        }),
+        });
+        for (const p of newPlayers) {
+          await dbInsertPlayer(p);
+        }
+      },
 
       setActiveGame: (gameId) => set({ activeGameId: gameId }),
 
-      addGame: (game) => set((s) => ({ games: [game, ...s.games] })),
+      addGame: async (game) => {
+        set((s) => ({
+          games: [game, ...s.games.filter((g) => g.id !== game.id)],
+          activeGameId: s.activeGameId || game.id,
+        }));
+        const res = await dbInsertGame(game);
+        if (!res.success) {
+          console.error("Failed to insert game to Supabase:", res.error);
+        }
+        return res;
+      },
 
-      updateGame: (gameId, updates) =>
+      updateGame: async (gameId, updates) => {
         set((s) => ({
           games: s.games.map((g) => (g.id === gameId ? { ...g, ...updates } : g)),
-        })),
+        }));
+        const res = await dbUpdateGame(gameId, updates);
+        if (!res.success) {
+          console.error("Failed to update game in Supabase:", res.error);
+        }
+        return res;
+      },
 
-      deleteGame: (gameId) =>
+      deleteGame: async (gameId) => {
         set((s) => {
           const remainingGames = s.games.filter((g) => g.id !== gameId);
           const nextActiveGameId =
@@ -230,58 +358,24 @@ export const useD2LStore = create<D2LState>()(
             statEvents: s.statEvents.filter((e) => e.gameId !== gameId),
             activeGameId: nextActiveGameId,
           };
-        }),
-
-      toggleClock: () => {
-        const game = get().getActiveGame();
-        if (!game) return;
-        const nextState = !game.isClockRunning;
-        get().updateGame(game.id, { isClockRunning: nextState });
-        if (nextState) {
-          soundFX.playClick();
-          triggerHaptic("light");
-        } else {
-          soundFX.playWhistle();
-          triggerHaptic("medium");
-        }
-        broadcastD2LEvent({
-          type: "GAME_CLOCK_UPDATED",
-          gameId: game.id,
-          payload: { isClockRunning: nextState, timeRemainingSeconds: game.timeRemainingSeconds },
-          senderStaffId: get().currentStaff.id,
-          senderStaffName: get().currentStaff.name,
-          timestamp: Date.now(),
         });
-      },
-
-      setClockRunning: (running) => {
-        const game = get().getActiveGame();
-        if (game) get().updateGame(game.id, { isClockRunning: running });
-      },
-
-      adjustClockSeconds: (delta) => {
-        const game = get().getActiveGame();
-        if (!game) return;
-        const newSeconds = Math.max(0, game.timeRemainingSeconds + delta);
-        get().updateGame(game.id, { timeRemainingSeconds: newSeconds });
-      },
-
-      setClockSeconds: (seconds) => {
-        const game = get().getActiveGame();
-        if (game) get().updateGame(game.id, { timeRemainingSeconds: Math.max(0, seconds) });
+        const res = await dbDeleteGame(gameId);
+        if (!res.success) {
+          console.error("Failed to delete game from Supabase:", res.error);
+        }
+        return res;
       },
 
       setGameQuarter: (quarter) => {
         const game = get().getActiveGame();
         if (!game) return;
         soundFX.playBuzzer();
-        get().updateGame(game.id, {
+        const updates: Partial<Game> = {
           quarter,
-          timeRemainingSeconds: 600, // 10 minutes default
-          isClockRunning: false,
           homeFouls: 0,
           awayFouls: 0,
-        });
+        };
+        get().updateGame(game.id, updates);
       },
 
       setGameScore: (homeScore, awayScore) => {
@@ -292,29 +386,7 @@ export const useD2LStore = create<D2LState>()(
       setGameStatus: (status) => {
         const game = get().getActiveGame();
         if (game) {
-          get().updateGame(game.id, {
-            status,
-            isClockRunning: status === "live" ? game.isClockRunning : false,
-          });
-        }
-      },
-
-      setPossession: (possession) => {
-        const game = get().getActiveGame();
-        if (game) get().updateGame(game.id, { possession });
-      },
-
-      adjustTimeouts: (teamSide, delta) => {
-        const game = get().getActiveGame();
-        if (!game) return;
-        if (teamSide === "home") {
-          const current = game.homeTimeouts;
-          const next = Math.max(0, Math.min(5, current + delta));
-          get().updateGame(game.id, { homeTimeouts: next });
-        } else {
-          const current = game.awayTimeouts;
-          const next = Math.max(0, Math.min(5, current + delta));
-          get().updateGame(game.id, { awayTimeouts: next });
+          get().updateGame(game.id, { status });
         }
       },
 
@@ -372,18 +444,13 @@ export const useD2LStore = create<D2LState>()(
           triggerHaptic("light");
         }
 
-        // Format game clock string mm:ss
-        const mins = Math.floor(game.timeRemainingSeconds / 60);
-        const secs = game.timeRemainingSeconds % 60;
-        const clockStr = `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-
         const newEvent: StatEvent = {
           id: `evt-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           gameId: game.id,
           teamId,
           playerId,
           quarter: game.quarter,
-          gameClock: clockStr,
+          gameClock: game.quarter,
           statType,
           points,
           assistPlayerId: options?.assistPlayerId,
@@ -431,11 +498,15 @@ export const useD2LStore = create<D2LState>()(
 
         set((s) => ({
           statEvents: [newEvent, ...s.statEvents],
-          undoStack: [newEvent, ...s.undoStack.slice(0, 19)], // keep last 20 actions for undo
+          undoStack: [newEvent, ...s.undoStack.slice(0, 19)],
           games: s.games.map((g) => (g.id === game.id ? updatedGame : g)),
         }));
 
-        // Broadcast to other tabs & queue if needed
+        // Insert into Supabase
+        dbInsertStatEvent(newEvent);
+        dbUpdateGame(game.id, updatedGame);
+
+        // Broadcast to peer tabs
         broadcastD2LEvent({
           type: "STAT_EVENT_ADDED",
           gameId: game.id,
@@ -453,7 +524,7 @@ export const useD2LStore = create<D2LState>()(
             teamId,
             playerId: options.assistPlayerId,
             quarter: game.quarter,
-            gameClock: clockStr,
+            gameClock: game.quarter,
             statType: "AST",
             points: 0,
             timestamp: Date.now() + 1,
@@ -464,6 +535,7 @@ export const useD2LStore = create<D2LState>()(
           set((s) => ({
             statEvents: [assistEvt, ...s.statEvents],
           }));
+          dbInsertStatEvent(assistEvt);
         }
 
         return newEvent;
@@ -513,6 +585,9 @@ export const useD2LStore = create<D2LState>()(
           games: s.games.map((g) => (g.id === game.id ? updatedGame : g)),
         }));
 
+        dbDeleteStatEvent(lastEvent.id);
+        dbUpdateGame(game.id, updatedGame);
+
         soundFX.playClick();
         triggerHaptic("medium");
 
@@ -550,6 +625,9 @@ export const useD2LStore = create<D2LState>()(
           undoStack: s.undoStack.filter((e) => e.id !== eventId),
           games: s.games.map((g) => (g.id === game.id ? updatedGame : g)),
         }));
+
+        dbDeleteStatEvent(eventId);
+        dbUpdateGame(game.id, updatedGame);
       },
 
       editStatEvent: (eventId, updates) => {
@@ -560,8 +638,21 @@ export const useD2LStore = create<D2LState>()(
 
       setCurrentStaff: (staff) => set({ currentStaff: staff }),
 
-      login: async (email, pass) => {
+      updateAdminPin: async (newPin: string) => {
         const state = get();
+        const hashed = await hashPin(newPin);
+        const updatedStaff: StaffUser = {
+          ...state.currentStaff,
+          pin: hashed,
+        };
+        set({ currentStaff: updatedStaff });
+        if (updatedStaff.id) {
+          await dbUpdateStaffPin(updatedStaff.id, hashed);
+        }
+        return true;
+      },
+
+      login: async (email, pass) => {
         const cleanEmail = email.trim().toLowerCase();
         const cleanPass = pass.trim();
 
@@ -569,44 +660,40 @@ export const useD2LStore = create<D2LState>()(
           return { success: false, error: "Please enter your email and password." };
         }
 
-        if (isSupabaseConfigured) {
-          try {
-            const { data, error } = await supabase.auth.signInWithPassword({
-              email: cleanEmail,
-              password: cleanPass,
-            });
+        if (!isSupabaseConfigured) {
+          return { success: false, error: "Supabase connection is not configured. Please check your environment variables." };
+        }
 
-            if (error) {
-              return { success: false, error: error.message || "Invalid login credentials." };
-            }
+        try {
+          const { data, error } = await supabase.auth.signInWithPassword({
+            email: cleanEmail,
+            password: cleanPass,
+          });
 
-            if (data?.user) {
-              const matched = state.staffList.find((s) => s.email.toLowerCase() === cleanEmail);
-              const loggedInStaff: StaffUser = matched || {
-                id: data.user.id,
-                name: data.user.user_metadata?.name || cleanEmail.split("@")[0],
-                email: cleanEmail,
-                role: (data.user.user_metadata?.role as StaffRole) || "staff",
-                pin: "0000",
-                avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-              };
-              set({ isAuthenticated: true, currentStaff: loggedInStaff });
-              return { success: true, role: loggedInStaff.role };
-            }
-          } catch (err: any) {
-            return { success: false, error: err?.message || "Supabase authentication error." };
+          if (error) {
+            return { success: false, error: error.message || "Invalid login credentials." };
           }
-        }
 
-        // Local environment fallback when NEXT_PUBLIC_SUPABASE_URL is not set:
-        // Authenticates by matching staff email without plain text password storage or comparison
-        const matched = state.staffList.find((s) => s.email.toLowerCase() === cleanEmail);
-        if (!matched) {
-          return { success: false, error: "No staff account found for this email address." };
-        }
+          if (data?.user) {
+            const role = (data.user.user_metadata?.role as StaffRole) || (cleanEmail.includes("admin") || cleanEmail.includes("marcus") ? "admin" : "staff");
+            const loggedInStaff: StaffUser = {
+              id: data.user.id,
+              name: data.user.user_metadata?.name || cleanEmail.split("@")[0],
+              email: cleanEmail,
+              role,
+              pin: "2026",
+              avatar: data.user.user_metadata?.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+            };
 
-        set({ isAuthenticated: true, currentStaff: matched });
-        return { success: true, role: matched.role };
+            set({ isAuthenticated: true, currentStaff: loggedInStaff });
+            await get().loadFromSupabase();
+            return { success: true, role: loggedInStaff.role };
+          }
+
+          return { success: false, error: "Authentication failed. No user returned." };
+        } catch (err: any) {
+          return { success: false, error: err?.message || "Supabase authentication error." };
+        }
       },
 
       logout: async () => {
@@ -617,10 +704,19 @@ export const useD2LStore = create<D2LState>()(
             console.warn("Sign out error:", err);
           }
         }
-        set({ isAuthenticated: false });
+        set({
+          isAuthenticated: false,
+          currentStaff: DEFAULT_STAFF,
+        });
+        if (typeof window !== "undefined") {
+          localStorage.removeItem("d2l_league_storage_v1");
+        }
       },
 
-      addStaff: (staff) => set((s) => ({ staffList: [...s.staffList, staff] })),
+      addStaff: (staff) => {
+        set((s) => ({ staffList: [...s.staffList, staff] }));
+        dbInsertStaff(staff);
+      },
 
       toggleSound: () =>
         set((s) => {
@@ -634,35 +730,24 @@ export const useD2LStore = create<D2LState>()(
           themeMode: s.themeMode === "courtside-dark" ? "clean-light" : "courtside-dark",
         })),
 
-      resetAllDataToDefault: () => {
-        set({
-          leagues: INITIAL_LEAGUES,
-          teams: INITIAL_TEAMS,
-          players: INITIAL_PLAYERS,
-          games: INITIAL_GAMES,
-          statEvents: INITIAL_STAT_EVENTS,
-          undoStack: [],
-          onCourtPlayerIds: buildInitialOnCourt(),
-          staffList: INITIAL_STAFF,
-          activeGameId: "game-live-101",
-        });
-      },
-
       syncOfflineQueue: () => {
-        // Mock flush of offline queue
         set({ pendingSyncCount: 0 });
       },
 
       // SELECTORS
       getActiveGame: () => {
         const { games, activeGameId } = get();
-        return games.find((g) => g.id === activeGameId) || games[0];
+        if (activeGameId) {
+          const found = games.find((g) => g.id === activeGameId);
+          if (found) return found;
+        }
+        return games[0];
       },
 
       getGameTeams: (gameId) => {
         const { games, teams, activeGameId } = get();
         const targetGameId = gameId || activeGameId;
-        const game = games.find((g) => g.id === targetGameId);
+        const game = games.find((g) => g.id === targetGameId) || games[0];
         if (!game) return {};
         return {
           homeTeam: teams.find((t) => t.id === game.homeTeamId),
@@ -673,7 +758,7 @@ export const useD2LStore = create<D2LState>()(
       getGamePlayers: (gameId) => {
         const { games, players, activeGameId } = get();
         const targetGameId = gameId || activeGameId;
-        const game = games.find((g) => g.id === targetGameId);
+        const game = games.find((g) => g.id === targetGameId) || games[0];
         if (!game) return { homePlayers: [], awayPlayers: [] };
         return {
           homePlayers: players.filter((p) => p.teamId === game.homeTeamId),
@@ -690,7 +775,7 @@ export const useD2LStore = create<D2LState>()(
       calculateBoxScore: (gameId) => {
         const state = get();
         const targetGameId = gameId || state.activeGameId;
-        const game = state.games.find((g) => g.id === targetGameId);
+        const game = state.games.find((g) => g.id === targetGameId) || state.games[0];
         if (!game) {
           const emptyTotal: PlayerBoxStat = {
             playerId: "total",
@@ -726,7 +811,7 @@ export const useD2LStore = create<D2LState>()(
           return { home: [], away: [], homeTotals: emptyTotal, awayTotals: emptyTotal };
         }
 
-        const events = state.statEvents.filter((e) => e.gameId === targetGameId);
+        const events = state.statEvents.filter((e) => e.gameId === game.id);
         const homePlayers = state.players.filter((p) => p.teamId === game.homeTeamId);
         const awayPlayers = state.players.filter((p) => p.teamId === game.awayTeamId);
 
@@ -743,7 +828,7 @@ export const useD2LStore = create<D2LState>()(
               position: p.position,
               isStarter: p.isStarter,
               isOnCourt: onCourt,
-              minutes: p.isStarter ? 24 : 12, // Baseline minutes + live
+              minutes: 0,
               seconds: 0,
               pts: 0,
               fgm: 0,
@@ -764,7 +849,7 @@ export const useD2LStore = create<D2LState>()(
               to: 0,
               pf: 0,
               tech: 0,
-              plusMinus: p.isStarter ? 4 : -2,
+              plusMinus: 0,
             };
           });
 
@@ -875,7 +960,7 @@ export const useD2LStore = create<D2LState>()(
               position: "",
               isStarter: false,
               isOnCourt: false,
-              minutes: 200,
+              minutes: 0,
               seconds: 0,
               pts: 0,
               fgm: 0,
@@ -921,10 +1006,25 @@ export const useD2LStore = create<D2LState>()(
       getPlayerLeaderboard: (statKey) => {
         const { players, teams, statEvents } = get();
 
-        // Calculate aggregates for each player
         const items: PlayerLeaderboardItem[] = players.map((player) => {
-          const team = teams.find((t) => t.id === player.teamId) || teams[0];
+          const team = teams.find((t) => t.id === player.teamId) || {
+            id: player.teamId,
+            name: "Free Agent",
+            shortName: "FA",
+            logo: "",
+            primaryColor: "#0B3B24",
+            secondaryColor: "#D4AF37",
+            wins: 0,
+            losses: 0,
+            pointsFor: 0,
+            pointsAgainst: 0,
+            streak: "-",
+            leagueId: "d2l-s10",
+          };
+
           const playerEvents = statEvents.filter((e) => e.playerId === player.id);
+          const distinctGameIds = new Set(playerEvents.map((e) => e.gameId));
+          const gamesPlayed = Math.max(1, distinctGameIds.size);
 
           let pts = 0;
           let fgm = 0;
@@ -937,14 +1037,6 @@ export const useD2LStore = create<D2LState>()(
           let ast = 0;
           let blk = 0;
           let stl = 0;
-
-          // Seed with realistic baseline statistics based on position and starter status
-          const gamesPlayed = 8;
-          const baselinePts = player.isStarter ? 14 + (player.jerseyNumber % 10) : 6 + (player.jerseyNumber % 6);
-          const baselineReb = player.position === "C" ? 9.8 : player.position === "PF" ? 7.5 : 3.4;
-          const baselineAst = player.position === "PG" ? 7.2 : player.position === "SG" ? 3.8 : 1.9;
-          const baselineBlk = player.position === "C" ? 2.1 : player.position === "PF" ? 1.3 : 0.4;
-          const baselineStl = player.position === "PG" || player.position === "SG" ? 1.8 : 0.8;
 
           playerEvents.forEach((evt) => {
             if (evt.statType === "2PT_MAKE") {
@@ -979,15 +1071,11 @@ export const useD2LStore = create<D2LState>()(
             }
           });
 
-          const totalPoints = Math.round(baselinePts * gamesPlayed + pts);
-          const totalRebounds = Math.round(baselineReb * gamesPlayed + reb);
-          const totalAssists = Math.round(baselineAst * gamesPlayed + ast);
-
-          const ppg = parseFloat((totalPoints / gamesPlayed).toFixed(1));
-          const rpg = parseFloat((totalRebounds / gamesPlayed).toFixed(1));
-          const apg = parseFloat((totalAssists / gamesPlayed).toFixed(1));
-          const bpg = parseFloat(((baselineBlk * gamesPlayed + blk) / gamesPlayed).toFixed(1));
-          const spg = parseFloat(((baselineStl * gamesPlayed + stl) / gamesPlayed).toFixed(1));
+          const ppg = parseFloat((pts / gamesPlayed).toFixed(1));
+          const rpg = parseFloat((reb / gamesPlayed).toFixed(1));
+          const apg = parseFloat((ast / gamesPlayed).toFixed(1));
+          const bpg = parseFloat((blk / gamesPlayed).toFixed(1));
+          const spg = parseFloat((stl / gamesPlayed).toFixed(1));
 
           return {
             player,
@@ -998,18 +1086,18 @@ export const useD2LStore = create<D2LState>()(
             apg,
             bpg,
             spg,
-            fgPct: player.position === "C" ? 58.4 : 46.2,
-            fg3Pct: player.position === "SG" || player.position === "PG" ? 38.5 : 28.0,
-            ftPct: 78.5,
-            totalPoints,
-            totalRebounds,
-            totalAssists,
+            fgPct: fga > 0 ? Math.round((fgm / fga) * 100) : 0,
+            fg3Pct: fg3a > 0 ? Math.round((fg3m / fg3a) * 100) : 0,
+            ftPct: fta > 0 ? Math.round((ftm / fta) * 100) : 0,
+            totalPoints: pts,
+            totalRebounds: reb,
+            totalAssists: ast,
             rank: 1,
           };
         });
 
         // Sort descending by chosen statKey
-        items.sort((a, b) => b[statKey] - a[statKey]);
+        items.sort((a, b) => (b[statKey] as number) - (a[statKey] as number));
 
         // Assign ranks
         items.forEach((item, index) => {

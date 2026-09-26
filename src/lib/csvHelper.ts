@@ -9,10 +9,6 @@ export interface PlayerCsvRow {
   first_name?: string;
   last_name?: string;
   position: string;
-  height?: string;
-  weight?: string;
-  age?: string | number;
-  hometown?: string;
   photo_url?: string;
   is_starter?: string | boolean;
 }
@@ -25,10 +21,6 @@ export function exportPlayersCsv(players: Player[]): void {
     first_name: p.firstName,
     last_name: p.lastName,
     position: p.position,
-    height: p.height,
-    weight: p.weight,
-    age: p.age,
-    hometown: p.hometown,
     photo_url: p.photoUrl || "",
     is_starter: p.isStarter ? "YES" : "NO",
   }));
@@ -60,16 +52,12 @@ export function parsePlayersCsv(file: File): Promise<Player[]> {
 
             return {
               id: `p-csv-${Date.now()}-${index}`,
-              teamId: row.team_id || "team-titans",
+              teamId: row.team_id || "",
               jerseyNumber,
               name,
               firstName,
               lastName,
               position: ["PG", "SG", "SF", "PF", "C"].includes(pos) ? pos : "SG",
-              height: row.height || `6'${Math.floor(Math.random() * 6)}"`,
-              weight: row.weight || "185 lbs",
-              age: parseInt(String(row.age), 10) || 26,
-              hometown: row.hometown || "Ayala Alabang Village",
               photoUrl: row.photo_url || "",
               isStarter: String(row.is_starter).toLowerCase() === "yes" || String(row.is_starter) === "true",
               isActive: true,
@@ -130,8 +118,8 @@ export function parseScheduleCsv(file: File, leagueId: string, season: string): 
             id: row.game_id || `game-csv-${Date.now()}-${index}`,
             leagueId,
             season,
-            homeTeamId: row.home_team_id || "team-titans",
-            awayTeamId: row.away_team_id || "team-vipers",
+            homeTeamId: row.home_team_id || "",
+            awayTeamId: row.away_team_id || "",
             homeScore: Number(row.home_score) || 0,
             awayScore: Number(row.away_score) || 0,
             quarter: "Q1",
@@ -142,9 +130,6 @@ export function parseScheduleCsv(file: File, leagueId: string, season: string): 
             venue: row.venue || "Ayala Alabang Village Main Gym",
             homeFouls: 0,
             awayFouls: 0,
-            homeTimeouts: 4,
-            awayTimeouts: 4,
-            possession: "neutral",
             officials: ["R. Fernandez", "J. Laurel"],
             quarterScores: {
               home: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
