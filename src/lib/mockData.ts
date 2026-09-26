@@ -24,7 +24,6 @@ export const INITIAL_STAFF: StaffUser[] = [
     email: "marcus@d2league.ph",
     role: "admin", // System Admin: full access
     pin: "2026",
-    password: "admin",
     avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
   },
   {
@@ -33,7 +32,6 @@ export const INITIAL_STAFF: StaffUser[] = [
     email: "dave@d2league.ph",
     role: "staff", // Staff: courtside live tracking only
     pin: "1234",
-    password: "staff",
     avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80",
   },
 ];

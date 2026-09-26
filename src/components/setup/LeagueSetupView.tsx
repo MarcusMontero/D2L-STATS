@@ -85,7 +85,6 @@ export const LeagueSetupView: React.FC = () => {
   // New Staff state
   const [newStaffName, setNewStaffName] = useState("");
   const [newStaffEmail, setNewStaffEmail] = useState("");
-  const [newStaffPassword, setNewStaffPassword] = useState("");
   const [newStaffRole, setNewStaffRole] = useState<"admin" | "staff">("staff");
   const [newStaffPin, setNewStaffPin] = useState("1234");
 
@@ -280,7 +279,6 @@ export const LeagueSetupView: React.FC = () => {
       email: newStaffEmail || `${newStaffName.toLowerCase().replace(/\s+/g, "")}@d2league.ph`,
       role: newStaffRole,
       pin: newStaffPin || "1234",
-      password: newStaffPassword || "d2l2026",
       avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
     };
 
@@ -288,7 +286,6 @@ export const LeagueSetupView: React.FC = () => {
     setIsAddStaffOpen(false);
     setNewStaffName("");
     setNewStaffEmail("");
-    setNewStaffPassword("");
   };
 
   return (
@@ -1058,13 +1055,13 @@ export const LeagueSetupView: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="text-xs text-gray-400 block mb-1">Initial Password</label>
+                <label className="text-xs text-gray-400 block mb-1">Device PIN</label>
                 <input
                   type="text"
-                  placeholder="e.g. staff2026"
-                  value={newStaffPassword}
-                  onChange={(e) => setNewStaffPassword(e.target.value)}
-                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded p-2 text-xs text-white"
+                  maxLength={4}
+                  value={newStaffPin}
+                  onChange={(e) => setNewStaffPin(e.target.value)}
+                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded p-2 text-xs text-white font-mono text-center"
                 />
               </div>
             </div>

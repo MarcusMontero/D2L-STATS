@@ -147,7 +147,6 @@ export interface StaffUser {
   email: string;
   role: StaffRole;
   pin: string;
-  password?: string;
   avatar: string;
 }
 

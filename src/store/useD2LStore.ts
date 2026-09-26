@@ -565,6 +565,10 @@ export const useD2LStore = create<D2LState>()(
         const cleanEmail = email.trim().toLowerCase();
         const cleanPass = pass.trim();
 
+        if (!cleanEmail || !cleanPass) {
+          return { success: false, error: "Please enter your email and password." };
+        }
+
         if (isSupabaseConfigured) {
           try {
             const { data, error } = await supabase.auth.signInWithPassword({
@@ -572,40 +576,33 @@ export const useD2LStore = create<D2LState>()(
               password: cleanPass,
             });
 
-            if (!error && data?.user) {
+            if (error) {
+              return { success: false, error: error.message || "Invalid login credentials." };
+            }
+
+            if (data?.user) {
               const matched = state.staffList.find((s) => s.email.toLowerCase() === cleanEmail);
               const loggedInStaff: StaffUser = matched || {
                 id: data.user.id,
                 name: data.user.user_metadata?.name || cleanEmail.split("@")[0],
                 email: cleanEmail,
-                role: (data.user.user_metadata?.role as any) || "staff",
+                role: (data.user.user_metadata?.role as StaffRole) || "staff",
                 pin: "0000",
                 avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
               };
               set({ isAuthenticated: true, currentStaff: loggedInStaff });
               return { success: true, role: loggedInStaff.role };
             }
-          } catch (err) {
-            console.warn("Supabase auth exception:", err);
+          } catch (err: any) {
+            return { success: false, error: err?.message || "Supabase authentication error." };
           }
         }
 
-        const matched = state.staffList.find(
-          (s) => s.email.toLowerCase() === cleanEmail
-        );
-
+        // Local environment fallback when NEXT_PUBLIC_SUPABASE_URL is not set:
+        // Authenticates by matching staff email without plain text password storage or comparison
+        const matched = state.staffList.find((s) => s.email.toLowerCase() === cleanEmail);
         if (!matched) {
-          return { success: false, error: "No account found matching this email address." };
-        }
-
-        const isPassMatch =
-          (matched.password && matched.password === cleanPass) ||
-          matched.pin === cleanPass ||
-          (matched.role === "admin" && (cleanPass === "admin" || cleanPass === "2026")) ||
-          (matched.role === "staff" && (cleanPass === "staff" || cleanPass === "1234" || cleanPass === "2026"));
-
-        if (!isPassMatch) {
-          return { success: false, error: "Invalid password or PIN. Please try again." };
+          return { success: false, error: "No staff account found for this email address." };
         }
 
         set({ isAuthenticated: true, currentStaff: matched });

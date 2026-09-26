@@ -2,7 +2,6 @@
 
 import React, { useState } from "react";
 import { useD2LStore } from "@/store/useD2LStore";
-import { StaffRole } from "@/lib/types";
 import {
   Lock,
   Mail,
@@ -12,7 +11,6 @@ import {
   ArrowRight,
   Eye,
   EyeOff,
-  Users,
 } from "lucide-react";
 
 interface LoginPageProps {
@@ -52,12 +50,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleQuickDemoFill = (demoEmail: string, demoPass: string) => {
-    setEmail(demoEmail);
-    setPassword(demoPass);
-    setErrorMessage(null);
   };
 
   return (
@@ -124,7 +116,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                 <input
                   type="email"
                   required
-                  placeholder="e.g. marcus@d2league.ph"
+                  placeholder="e.g. staff@d2league.ph"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-d2l-cardDark border border-d2l-borderDark focus:border-d2l-gold rounded-xl pl-9 pr-3 py-3 text-white placeholder-gray-500 font-medium outline-none transition"
@@ -135,14 +127,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             {/* Password Field */}
             <div className="space-y-1">
               <label className="block text-gray-300 font-bold uppercase text-[10px] tracking-wider">
-                Password or PIN
+                Password
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type={showPassword ? "text" : "password"}
                   required
-                  placeholder="Enter password or PIN"
+                  placeholder="Enter password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="w-full bg-d2l-cardDark border border-d2l-borderDark focus:border-d2l-gold rounded-xl pl-9 pr-10 py-3 text-white placeholder-gray-500 font-medium outline-none transition"
@@ -176,42 +168,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               )}
             </button>
           </form>
-
-          {/* Demo Accounts Helper Card */}
-          <div className="pt-4 border-t border-d2l-borderDark space-y-2">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center justify-between">
-              <span className="flex items-center gap-1">
-                <Users className="w-3 h-3 text-d2l-gold" /> Quick Sign-In Presets
-              </span>
-              <span className="text-[9px] text-d2l-gold font-normal">Select account</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickDemoFill("marcus@d2league.ph", "admin")}
-                className="bg-d2l-cardDark hover:bg-d2l-forest border border-d2l-borderDark hover:border-d2l-gold/50 p-2 rounded-lg text-left transition"
-              >
-                <div className="font-bold text-white text-[11px]">System Admin</div>
-                <div className="text-[9px] text-amber-300 font-mono">marcus@d2league.ph</div>
-                <div className="text-[9px] text-gray-400 mt-0.5">Password: admin</div>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => handleQuickDemoFill("dave@d2league.ph", "staff")}
-                className="bg-d2l-cardDark hover:bg-d2l-forest border border-d2l-borderDark hover:border-d2l-gold/50 p-2 rounded-lg text-left transition"
-              >
-                <div className="font-bold text-white text-[11px]">Courtside Staff</div>
-                <div className="text-[9px] text-emerald-300 font-mono">dave@d2league.ph</div>
-                <div className="text-[9px] text-gray-400 mt-0.5">Password: staff</div>
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Footer Note */}
         <p className="text-[11px] text-center text-gray-500">
-          Account creation is restricted. New staff accounts are created exclusively by System Admins inside League Setup.
+          Authorized staff only. Account registration is managed by System Admins inside League Setup.
         </p>
       </div>
     </div>
