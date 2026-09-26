@@ -90,8 +90,8 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
           {/* Static D2L Crest Logo */}
           <div className="relative h-10 w-10 shrink-0 flex items-center justify-center">
             <img
-              src="/d2l-logo.png"
-              alt="D2L Crest Logo"
+              src="/D2L_LOGO.png"
+              alt="/D2L_LOGO.png"
               className="h-10 w-auto max-w-[42px] object-contain drop-shadow-md"
             />
           </div>
