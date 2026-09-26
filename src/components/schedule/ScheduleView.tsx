@@ -14,16 +14,30 @@ import {
   MapPin,
   Clock,
   ChevronRight,
+  Edit2,
+  Trash2,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
+import { ConfirmModal } from "@/components/common/ConfirmModal";
 
 interface ScheduleViewProps {
   onNavigateToBoxScore: (gameId: string) => void;
 }
 
 export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore }) => {
-  const { games, teams, activeLeagueId, leagues, addGame, setActiveGame } = useD2LStore();
+  const {
+    games,
+    teams,
+    activeLeagueId,
+    leagues,
+    addGame,
+    updateGame,
+    deleteGame,
+    setActiveGame,
+    currentStaff,
+  } = useD2LStore();
 
+  const isAdmin = currentStaff.role === "admin";
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
   const [isAddGameOpen, setIsAddGameOpen] = useState(false);
 
@@ -33,6 +47,20 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
   const [newDate, setNewDate] = useState("2026-10-02");
   const [newTime, setNewTime] = useState("18:30");
   const [newVenue, setNewVenue] = useState("Ayala Alabang Village Main Gym - Court 1");
+
+  // Edit Game Modal State
+  const [editingGame, setEditingGame] = useState<Game | null>(null);
+  const [editHomeTeamId, setEditHomeTeamId] = useState("");
+  const [editAwayTeamId, setEditAwayTeamId] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editTime, setEditTime] = useState("");
+  const [editVenue, setEditVenue] = useState("");
+  const [editStatus, setEditStatus] = useState<Game["status"]>("scheduled");
+  const [editHomeScore, setEditHomeScore] = useState(0);
+  const [editAwayScore, setEditAwayScore] = useState(0);
+
+  // Delete Game Modal State
+  const [gameToDelete, setGameToDelete] = useState<Game | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -96,6 +124,52 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
     setIsAddGameOpen(false);
   };
 
+  const handleOpenEditGame = (g: Game) => {
+    setEditingGame(g);
+    setEditHomeTeamId(g.homeTeamId);
+    setEditAwayTeamId(g.awayTeamId);
+    setEditVenue(g.venue);
+    setEditStatus(g.status);
+    setEditHomeScore(g.homeScore);
+    setEditAwayScore(g.awayScore);
+
+    const d = new Date(g.scheduledAt);
+    const dateStr = d.toISOString().split("T")[0];
+    const timeStr = d.toTimeString().slice(0, 5);
+    setEditDate(dateStr);
+    setEditTime(timeStr);
+  };
+
+  const handleSaveEditGame = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGame) return;
+
+    if (editHomeTeamId === editAwayTeamId) {
+      alert("Home team and Away team must be different.");
+      return;
+    }
+
+    const scheduledAt = new Date(`${editDate}T${editTime}:00+08:00`).toISOString();
+
+    updateGame(editingGame.id, {
+      homeTeamId: editHomeTeamId,
+      awayTeamId: editAwayTeamId,
+      scheduledAt,
+      venue: editVenue,
+      status: editStatus,
+      homeScore: editHomeScore,
+      awayScore: editAwayScore,
+    });
+
+    setEditingGame(null);
+  };
+
+  const handleConfirmDeleteGame = () => {
+    if (!gameToDelete) return;
+    deleteGame(gameToDelete.id);
+    setGameToDelete(null);
+  };
+
   const handleCsvImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -125,7 +199,13 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
 
         {/* Action Controls & Filters */}
         <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-          {/* Status filter (Simplified - no divisions) */}
+          {isAdmin && (
+            <span className="bg-amber-500/20 text-amber-300 text-[10px] px-2 py-1 rounded font-mono font-bold border border-amber-500/40">
+              ADMIN MODE
+            </span>
+          )}
+
+          {/* Status filter */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -156,30 +236,33 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
             <span className="hidden sm:inline">CSV</span>
           </button>
 
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            title="Import CSV"
-            className="p-1.5 rounded-lg bg-d2l-cardDark hover:bg-d2l-forest border border-d2l-borderDark text-xs font-bold text-gray-300 flex items-center gap-1"
-          >
-            <Upload className="w-4 h-4" />
-            <span className="hidden sm:inline">Import</span>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv"
-            onChange={handleCsvImport}
-            className="hidden"
-          />
+          {isAdmin && (
+            <>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Import CSV"
+                className="p-1.5 rounded-lg bg-d2l-cardDark hover:bg-d2l-forest border border-d2l-borderDark text-xs font-bold text-gray-300 flex items-center gap-1"
+              >
+                <Upload className="w-4 h-4" />
+                <span className="hidden sm:inline">Import</span>
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleCsvImport}
+                className="hidden"
+              />
 
-          {/* Add Game Button */}
-          <button
-            onClick={() => setIsAddGameOpen(true)}
-            className="px-3 py-1.5 rounded-lg bg-d2l-orange hover:bg-d2l-orangeHover text-white text-xs font-athletic font-bold flex items-center gap-1.5 orange-glow"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add Game</span>
-          </button>
+              <button
+                onClick={() => setIsAddGameOpen(true)}
+                className="px-3 py-1.5 rounded-lg bg-d2l-orange hover:bg-d2l-orangeHover text-white text-xs font-athletic font-bold flex items-center gap-1.5 orange-glow"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Game</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -213,34 +296,56 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
                   key={g.id}
                   className="bg-d2l-panelDark rounded-xl border border-d2l-borderDark hover:border-d2l-gold/50 p-4 shadow-lg transition flex flex-col justify-between gap-3"
                 >
-                  {/* Top Bar: Date & Time */}
+                  {/* Top Bar: Date & Time + Status + Admin Actions */}
                   <div className="flex items-center justify-between text-xs text-gray-400 pb-2 border-b border-d2l-forest/40">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-white flex items-center gap-1">
                         <Clock className="w-3.5 h-3.5 text-d2l-gold" /> {formattedDate} • {formattedTime}
                       </span>
                     </div>
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
-                        g.status === "live"
-                          ? "bg-d2l-orange text-white animate-pulse"
-                          : g.status === "final"
-                          ? "bg-gray-800 text-gray-300"
-                          : "bg-emerald-950 text-emerald-300 border border-emerald-500/40"
-                      }`}
-                    >
-                      {g.status}
-                    </span>
+
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
+                          g.status === "live"
+                            ? "bg-d2l-orange text-white animate-pulse"
+                            : g.status === "final"
+                            ? "bg-gray-800 text-gray-300"
+                            : "bg-emerald-950 text-emerald-300 border border-emerald-500/40"
+                        }`}
+                      >
+                        {g.status}
+                      </span>
+
+                      {isAdmin && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handleOpenEditGame(g)}
+                            title="Edit Game Details & Schedule"
+                            className="p-1 rounded bg-d2l-cardDark hover:bg-d2l-forest text-gray-300 hover:text-d2l-gold transition border border-d2l-borderDark"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setGameToDelete(g)}
+                            title="Delete Game & Stats"
+                            className="p-1 rounded bg-d2l-cardDark hover:bg-rose-950 text-gray-400 hover:text-rose-400 transition border border-d2l-borderDark"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   {/* Matchup Banner */}
                   <div className="flex items-center justify-between py-1">
                     {/* Home Team */}
                     <div className="flex items-center gap-2 flex-1">
-                      <TeamLogo logo={home.logo} name={home.name} size="md" />
+                      <TeamLogo logo={home?.logo} name={home?.name} size="md" />
                       <div>
                         <div className="font-athletic font-bold text-base text-white truncate max-w-[120px]">
-                          {home.name}
+                          {home?.name || "HOME"}
                         </div>
                         <div className="text-[10px] text-gray-400">HOME</div>
                       </div>
@@ -263,11 +368,11 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
                     <div className="flex items-center justify-end gap-2 flex-1 text-right">
                       <div>
                         <div className="font-athletic font-bold text-base text-white truncate max-w-[120px]">
-                          {away.name}
+                          {away?.name || "AWAY"}
                         </div>
                         <div className="text-[10px] text-gray-400">AWAY</div>
                       </div>
-                      <TeamLogo logo={away.logo} name={away.name} size="md" />
+                      <TeamLogo logo={away?.logo} name={away?.name} size="md" />
                     </div>
                   </div>
 
@@ -388,6 +493,186 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
           </form>
         </div>
       )}
+
+      {/* Edit Game Modal */}
+      {editingGame && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3">
+          <form
+            onSubmit={handleSaveEditGame}
+            className="bg-d2l-panelDark border-2 border-d2l-gold/60 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-d2l-borderDark pb-2">
+              <h3 className="font-athletic font-bold text-lg text-white flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-d2l-gold" /> Edit Game Schedule
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingGame(null)}
+                className="text-xs text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-gray-400 font-bold mb-1">Home Team</label>
+                  <select
+                    value={editHomeTeamId}
+                    onChange={(e) => setEditHomeTeamId(e.target.value)}
+                    className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white"
+                  >
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-gray-400 font-bold mb-1">Away Team</label>
+                  <select
+                    value={editAwayTeamId}
+                    onChange={(e) => setEditAwayTeamId(e.target.value)}
+                    className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white"
+                  >
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-gray-400 font-bold mb-1">Date</label>
+                  <input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-400 font-bold mb-1">Time</label>
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-bold mb-1">Venue / Court</label>
+                <input
+                  type="text"
+                  value={editVenue}
+                  onChange={(e) => setEditVenue(e.target.value)}
+                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white"
+                />
+              </div>
+
+              <div>
+                <label className="block text-gray-400 font-bold mb-1">Game Status</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value as any)}
+                  className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white"
+                >
+                  <option value="scheduled">Scheduled / Upcoming</option>
+                  <option value="live">Live Game in Progress</option>
+                  <option value="halftime">Halftime</option>
+                  <option value="final">Final Result</option>
+                  <option value="overtime">Overtime</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 bg-d2l-court/60 p-2.5 rounded-lg border border-d2l-borderDark">
+                <div>
+                  <label className="block text-gray-400 font-bold mb-1">Home Score</label>
+                  <input
+                    type="number"
+                    value={editHomeScore}
+                    onChange={(e) => setEditHomeScore(parseInt(e.target.value, 10) || 0)}
+                    className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white font-mono font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-gray-400 font-bold mb-1">Away Score</label>
+                  <input
+                    type="number"
+                    value={editAwayScore}
+                    onChange={(e) => setEditAwayScore(parseInt(e.target.value, 10) || 0)}
+                    className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2 text-white font-mono font-bold"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center pt-2 border-t border-d2l-borderDark">
+              <button
+                type="button"
+                onClick={() => setGameToDelete(editingGame)}
+                className="text-rose-400 hover:text-rose-300 text-xs font-bold flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Game</span>
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingGame(null)}
+                  className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Delete Game Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(gameToDelete)}
+        title="Delete Game Schedule Entry"
+        message={
+          <div>
+            <p className="font-semibold text-rose-300">
+              Are you sure you want to delete this game between{" "}
+              <strong className="text-white">
+                {teams.find((t) => t.id === gameToDelete?.homeTeamId)?.name || "Home"}
+              </strong>{" "}
+              and{" "}
+              <strong className="text-white">
+                {teams.find((t) => t.id === gameToDelete?.awayTeamId)?.name || "Away"}
+              </strong>
+              ?
+            </p>
+            <p className="mt-2 text-gray-400">
+              This will permanently remove the schedule entry and erase all logged stat events, quarter scores, and box score data tied to this game.
+            </p>
+            <p className="mt-1 text-gray-400 font-bold">This operation cannot be undone.</p>
+          </div>
+        }
+        confirmText="Delete Game & Stats"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleConfirmDeleteGame}
+        onCancel={() => setGameToDelete(null)}
+      />
     </div>
   );
 };

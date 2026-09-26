@@ -65,6 +65,7 @@ interface D2LState {
   setActiveGame: (gameId: string) => void;
   addGame: (game: Game) => void;
   updateGame: (gameId: string, updates: Partial<Game>) => void;
+  deleteGame: (gameId: string) => void;
   toggleClock: () => void;
   setClockRunning: (running: boolean) => void;
   adjustClockSeconds: (delta: number) => void;
@@ -161,10 +162,28 @@ export const useD2LStore = create<D2LState>()(
         })),
 
       deleteTeam: (id) =>
-        set((s) => ({
-          teams: s.teams.filter((t) => t.id !== id),
-          players: s.players.filter((p) => p.teamId !== id),
-        })),
+        set((s) => {
+          const remainingGames = s.games.filter(
+            (g) => g.homeTeamId !== id && g.awayTeamId !== id
+          );
+          const deletedGameIds = s.games
+            .filter((g) => g.homeTeamId === id || g.awayTeamId === id)
+            .map((g) => g.id);
+          const remainingEvents = s.statEvents.filter(
+            (e) => !deletedGameIds.includes(e.gameId)
+          );
+          const nextActiveGameId = deletedGameIds.includes(s.activeGameId)
+            ? remainingGames[0]?.id || ""
+            : s.activeGameId;
+
+          return {
+            teams: s.teams.filter((t) => t.id !== id),
+            players: s.players.filter((p) => p.teamId !== id),
+            games: remainingGames,
+            statEvents: remainingEvents,
+            activeGameId: nextActiveGameId,
+          };
+        }),
 
       addPlayer: (player) => set((s) => ({ players: [...s.players, player] })),
 
@@ -195,6 +214,18 @@ export const useD2LStore = create<D2LState>()(
         set((s) => ({
           games: s.games.map((g) => (g.id === gameId ? { ...g, ...updates } : g)),
         })),
+
+      deleteGame: (gameId) =>
+        set((s) => {
+          const remainingGames = s.games.filter((g) => g.id !== gameId);
+          const nextActiveGameId =
+            s.activeGameId === gameId ? remainingGames[0]?.id || "" : s.activeGameId;
+          return {
+            games: remainingGames,
+            statEvents: s.statEvents.filter((e) => e.gameId !== gameId),
+            activeGameId: nextActiveGameId,
+          };
+        }),
 
       toggleClock: () => {
         const game = get().getActiveGame();

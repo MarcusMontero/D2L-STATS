@@ -6,14 +6,41 @@ import { Team } from "@/lib/types";
 import {
   Trophy,
   ChevronRight,
+  Edit2,
+  Trash2,
+  Shield,
+  Plus,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
 import { PlayerAvatar } from "@/components/common/PlayerAvatar";
+import { ImageUploadField } from "@/components/common/ImageUploadField";
+import { ConfirmModal } from "@/components/common/ConfirmModal";
+import { deleteImage } from "@/lib/storageHelper";
 
 export const TeamsStandingsView: React.FC = () => {
-  const { teams, players, leagues, activeLeagueId } = useD2LStore();
+  const {
+    teams,
+    players,
+    games,
+    leagues,
+    activeLeagueId,
+    currentStaff,
+    updateTeam,
+    deleteTeam,
+  } = useD2LStore();
+
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
 
+  // Edit Team Modal state
+  const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [editTeamName, setEditTeamName] = useState("");
+  const [editTeamShort, setEditTeamShort] = useState("");
+  const [editTeamLogoUrl, setEditTeamLogoUrl] = useState<string>("");
+
+  // Delete Team Confirmation Modal state
+  const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
+
+  const isAdmin = currentStaff.role === "admin";
   const activeLeague = leagues.find((l) => l.id === activeLeagueId) || leagues[0];
 
   // Flat list for the whole league, ranked by win percentage, then point differential
@@ -57,6 +84,64 @@ export const TeamsStandingsView: React.FC = () => {
     return players.filter((p) => p.teamId === teamId);
   };
 
+  const handleOpenEditTeam = (team: Team, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingTeam(team);
+    setEditTeamName(team.name);
+    setEditTeamShort(team.shortName);
+    setEditTeamLogoUrl(team.logo || "");
+  };
+
+  const handleSaveEditTeam = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTeam) return;
+
+    updateTeam(editingTeam.id, {
+      name: editTeamName,
+      shortName: editTeamShort.toUpperCase(),
+      logo: editTeamLogoUrl,
+    });
+
+    if (selectedTeam?.id === editingTeam.id) {
+      setSelectedTeam({
+        ...selectedTeam,
+        name: editTeamName,
+        shortName: editTeamShort.toUpperCase(),
+        logo: editTeamLogoUrl,
+      });
+    }
+
+    setEditingTeam(null);
+  };
+
+  const handleConfirmDeleteTeam = async () => {
+    if (!teamToDelete) return;
+
+    // Remove logo from Supabase storage if applicable
+    if (teamToDelete.logo) {
+      await deleteImage(teamToDelete.logo, "team-logos");
+    }
+
+    // Delete player face photos for this team
+    const teamPlayerList = players.filter((p) => p.teamId === teamToDelete.id);
+    for (const p of teamPlayerList) {
+      if (p.photoUrl) {
+        await deleteImage(p.photoUrl, "player-photos");
+      }
+    }
+
+    // Delete team from store
+    deleteTeam(teamToDelete.id);
+
+    if (selectedTeam?.id === teamToDelete.id) {
+      setSelectedTeam(null);
+    }
+    setTeamToDelete(null);
+    if (editingTeam?.id === teamToDelete.id) {
+      setEditingTeam(null);
+    }
+  };
+
   return (
     <div className="space-y-4 pb-16 md:pb-6 text-white">
       {/* Header Banner */}
@@ -70,8 +155,13 @@ export const TeamsStandingsView: React.FC = () => {
             {activeLeague?.name} • Ayala Alabang Village • {activeLeague?.season}
           </p>
         </div>
-        <div className="text-xs text-d2l-gold font-bold bg-d2l-forest px-3 py-1.5 rounded-lg border border-d2l-gold/40">
-          Ranked by Win Percentage (WIN%)
+        <div className="text-xs text-d2l-gold font-bold bg-d2l-forest px-3 py-1.5 rounded-lg border border-d2l-gold/40 flex items-center gap-2">
+          <span>Ranked by Win Percentage (WIN%)</span>
+          {isAdmin && (
+            <span className="bg-amber-500/20 text-amber-300 text-[10px] px-2 py-0.5 rounded font-mono font-bold border border-amber-500/40">
+              ADMIN MODE
+            </span>
+          )}
         </div>
       </div>
 
@@ -91,7 +181,7 @@ export const TeamsStandingsView: React.FC = () => {
                 <th className="py-2.5 px-2 text-center">OPP PPG</th>
                 <th className="py-2.5 px-2 text-center">DIFF</th>
                 <th className="py-2.5 px-2 text-center">STRK</th>
-                <th className="py-2.5 px-3 text-right">Profile</th>
+                <th className="py-2.5 px-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-d2l-forest/30">
@@ -139,10 +229,36 @@ export const TeamsStandingsView: React.FC = () => {
                       {team.streak}
                     </td>
                     <td className="py-3 px-3 text-right">
-                      <button className="px-2.5 py-1 rounded bg-d2l-forest hover:bg-d2l-forestLight border border-d2l-borderDark text-[11px] font-bold text-white flex items-center gap-1 ml-auto">
-                        <span>View</span>
-                        <ChevronRight className="w-3 h-3" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => setSelectedTeam(team)}
+                          className="px-2 py-1 rounded bg-d2l-forest hover:bg-d2l-forestLight border border-d2l-borderDark text-[11px] font-bold text-white flex items-center gap-1"
+                        >
+                          <span>View</span>
+                          <ChevronRight className="w-3 h-3" />
+                        </button>
+                        {isAdmin && (
+                          <>
+                            <button
+                              onClick={(e) => handleOpenEditTeam(team, e)}
+                              title="Edit Team"
+                              className="p-1 rounded bg-d2l-cardDark hover:bg-d2l-forest border border-d2l-borderDark text-gray-300 hover:text-d2l-gold transition"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setTeamToDelete(team);
+                              }}
+                              title="Delete Team"
+                              className="p-1 rounded bg-d2l-cardDark hover:bg-rose-950 border border-d2l-borderDark text-gray-400 hover:text-rose-400 transition"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -169,12 +285,30 @@ export const TeamsStandingsView: React.FC = () => {
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedTeam(null)}
-                className="px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-bold text-gray-300"
-              >
-                Close
-              </button>
+              <div className="flex items-center gap-2">
+                {isAdmin && (
+                  <>
+                    <button
+                      onClick={() => handleOpenEditTeam(selectedTeam)}
+                      className="px-3 py-1 rounded-lg bg-d2l-forest hover:bg-d2l-forestLight border border-d2l-gold/40 text-xs font-bold text-d2l-gold flex items-center gap-1"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" /> Edit Team
+                    </button>
+                    <button
+                      onClick={() => setTeamToDelete(selectedTeam)}
+                      className="px-3 py-1 rounded-lg bg-rose-950 hover:bg-rose-900 border border-rose-500/40 text-xs font-bold text-rose-300 flex items-center gap-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Team
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setSelectedTeam(null)}
+                  className="px-3 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-xs font-bold text-gray-300"
+                >
+                  Close
+                </button>
+              </div>
             </div>
 
             {/* Season Averages Grid */}
@@ -229,6 +363,110 @@ export const TeamsStandingsView: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Edit Team Modal */}
+      {editingTeam && (
+        <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-3">
+          <form
+            onSubmit={handleSaveEditTeam}
+            className="bg-d2l-panelDark border-2 border-d2l-gold/60 rounded-2xl p-5 max-w-md w-full space-y-4"
+          >
+            <div className="flex items-center justify-between border-b border-d2l-borderDark pb-2">
+              <h3 className="font-athletic font-bold text-lg text-white flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-d2l-gold" /> Edit Team: {editingTeam.name}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setEditingTeam(null)}
+                className="text-xs text-gray-400 hover:text-white"
+              >
+                Close
+              </button>
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 block mb-1 font-bold">Team Name</label>
+              <input
+                type="text"
+                value={editTeamName}
+                onChange={(e) => setEditTeamName(e.target.value)}
+                className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-gray-400 block mb-1 font-bold">Short Name / Tri-code</label>
+              <input
+                type="text"
+                value={editTeamShort}
+                onChange={(e) => setEditTeamShort(e.target.value)}
+                className="w-full bg-d2l-cardDark border border-d2l-borderDark rounded-lg p-2.5 text-xs text-white uppercase font-mono"
+              />
+            </div>
+
+            <ImageUploadField
+              value={editTeamLogoUrl}
+              onChange={(url) => setEditTeamLogoUrl(url)}
+              bucket="team-logos"
+              label="Team Logo Badge"
+              fallbackType="team"
+              fallbackName={editTeamName}
+              hint="Replace with a new logo or remove to revert to gold initials badge"
+            />
+
+            <div className="flex justify-between items-center pt-2 border-t border-d2l-borderDark">
+              <button
+                type="button"
+                onClick={() => setTeamToDelete(editingTeam)}
+                className="text-rose-400 hover:text-rose-300 text-xs font-bold flex items-center gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Team</span>
+              </button>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTeam(null)}
+                  className="px-4 py-2 rounded-lg bg-gray-800 text-gray-300 text-xs font-bold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 rounded-lg bg-d2l-orange text-white text-xs font-athletic font-bold uppercase"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Delete Team Custom Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(teamToDelete)}
+        title={`Delete Team: ${teamToDelete?.name || ""}`}
+        message={
+          <div>
+            <p className="font-semibold text-rose-300">
+              Are you sure you want to permanently delete <strong className="text-white">{teamToDelete?.name}</strong>?
+            </p>
+            <p className="mt-2 text-gray-400">
+              This action will remove the team logo from storage, delete all{" "}
+              <strong className="text-d2l-gold">{players.filter((p) => p.teamId === teamToDelete?.id).length} players</strong> on its roster, and update or remove scheduled games tied to this team.
+            </p>
+            <p className="mt-1 text-gray-400 font-bold">This operation cannot be undone.</p>
+          </div>
+        }
+        confirmText="Delete Team & Roster"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleConfirmDeleteTeam}
+        onCancel={() => setTeamToDelete(null)}
+      />
     </div>
   );
 };

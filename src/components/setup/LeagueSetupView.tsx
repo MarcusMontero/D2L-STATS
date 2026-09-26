@@ -5,6 +5,8 @@ import { useD2LStore } from "@/store/useD2LStore";
 import { League, Team, Player, StaffUser } from "@/lib/types";
 import { exportPlayersCsv, parsePlayersCsv } from "@/lib/csvHelper";
 import { ImageUploadField } from "@/components/common/ImageUploadField";
+import { ConfirmModal } from "@/components/common/ConfirmModal";
+import { deleteImage } from "@/lib/storageHelper";
 import {
   Settings,
   Plus,
@@ -42,8 +44,10 @@ export const LeagueSetupView: React.FC = () => {
   const [isAddLeagueOpen, setIsAddLeagueOpen] = useState(false);
   const [isAddTeamOpen, setIsAddTeamOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
+  const [teamToDelete, setTeamToDelete] = useState<Team | null>(null);
   const [isAddPlayerOpen, setIsAddPlayerOpen] = useState(false);
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null);
+  const [playerToDelete, setPlayerToDelete] = useState<Player | null>(null);
   const [isAddStaffOpen, setIsAddStaffOpen] = useState(false);
 
   // New League state
@@ -213,6 +217,44 @@ export const LeagueSetupView: React.FC = () => {
     setEditingPlayer(null);
   };
 
+  const handleConfirmDeleteTeam = async () => {
+    if (!teamToDelete) return;
+
+    if (teamToDelete.logo) {
+      await deleteImage(teamToDelete.logo, "team-logos");
+    }
+
+    const teamPlayerList = players.filter((p) => p.teamId === teamToDelete.id);
+    for (const p of teamPlayerList) {
+      if (p.photoUrl) {
+        await deleteImage(p.photoUrl, "player-photos");
+      }
+    }
+
+    deleteTeam(teamToDelete.id);
+    if (selectedTeamId === teamToDelete.id) {
+      setSelectedTeamId(teams.find((t) => t.id !== teamToDelete.id)?.id || "");
+    }
+    if (editingTeam?.id === teamToDelete.id) {
+      setEditingTeam(null);
+    }
+    setTeamToDelete(null);
+  };
+
+  const handleConfirmDeletePlayer = async () => {
+    if (!playerToDelete) return;
+
+    if (playerToDelete.photoUrl) {
+      await deleteImage(playerToDelete.photoUrl, "player-photos");
+    }
+
+    deletePlayer(playerToDelete.id);
+    if (editingPlayer?.id === playerToDelete.id) {
+      setEditingPlayer(null);
+    }
+    setPlayerToDelete(null);
+  };
+
   const handleRosterCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -327,7 +369,7 @@ export const LeagueSetupView: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1 shrink-0">
                     <span className="text-[10px] font-mono bg-black/40 px-2 py-0.5 rounded text-d2l-gold">
                       {count}p
                     </span>
@@ -337,6 +379,16 @@ export const LeagueSetupView: React.FC = () => {
                       className="p-1 rounded text-gray-400 hover:text-d2l-gold hover:bg-black/40 transition"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTeamToDelete(t);
+                      }}
+                      title="Delete Team"
+                      className="p-1 rounded text-gray-400 hover:text-rose-400 hover:bg-black/40 transition"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
@@ -446,15 +498,28 @@ export const LeagueSetupView: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-right">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenEditPlayer(p);
-                        }}
-                        className="p-1 rounded text-gray-400 hover:text-d2l-gold hover:bg-black/30 transition"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenEditPlayer(p);
+                          }}
+                          title="Edit Player"
+                          className="p-1 rounded text-gray-400 hover:text-d2l-gold hover:bg-black/30 transition"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPlayerToDelete(p);
+                          }}
+                          title="Delete Player"
+                          className="p-1 rounded text-gray-400 hover:text-rose-400 hover:bg-black/30 transition"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -683,13 +748,8 @@ export const LeagueSetupView: React.FC = () => {
             <div className="flex justify-between items-center pt-2 border-t border-d2l-borderDark">
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm(`Delete entire team "${editingTeam.name}" and its roster?`)) {
-                    deleteTeam(editingTeam.id);
-                    setEditingTeam(null);
-                  }
-                }}
-                className="text-red-400 hover:text-red-300 text-xs font-bold flex items-center gap-1"
+                onClick={() => setTeamToDelete(editingTeam)}
+                className="text-rose-400 hover:text-rose-300 text-xs font-bold flex items-center gap-1"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Delete Team</span>
@@ -923,13 +983,8 @@ export const LeagueSetupView: React.FC = () => {
             <div className="flex justify-between items-center pt-2 border-t border-d2l-borderDark">
               <button
                 type="button"
-                onClick={() => {
-                  if (confirm(`Remove player "${editingPlayer.name}" from roster?`)) {
-                    deletePlayer(editingPlayer.id);
-                    setEditingPlayer(null);
-                  }
-                }}
-                className="text-red-400 hover:text-red-300 text-xs font-bold flex items-center gap-1"
+                onClick={() => setPlayerToDelete(editingPlayer)}
+                className="text-rose-400 hover:text-rose-300 text-xs font-bold flex items-center gap-1"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span>Delete Player</span>
@@ -1027,6 +1082,50 @@ export const LeagueSetupView: React.FC = () => {
           </form>
         </div>
       )}
+
+      {/* Delete Team Custom Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(teamToDelete)}
+        title={`Delete Team: ${teamToDelete?.name || ""}`}
+        message={
+          <div>
+            <p className="font-semibold text-rose-300">
+              Are you sure you want to delete <strong className="text-white">{teamToDelete?.name}</strong>?
+            </p>
+            <p className="mt-2 text-gray-400">
+              This will delete its logo from storage, drop all{" "}
+              <strong className="text-d2l-gold">{players.filter((p) => p.teamId === teamToDelete?.id).length} players</strong> on its roster, and update/remove its scheduled games.
+            </p>
+            <p className="mt-1 text-gray-400 font-bold">This action cannot be undone.</p>
+          </div>
+        }
+        confirmText="Delete Team & Roster"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleConfirmDeleteTeam}
+        onCancel={() => setTeamToDelete(null)}
+      />
+
+      {/* Delete Player Custom Confirmation Modal */}
+      <ConfirmModal
+        isOpen={Boolean(playerToDelete)}
+        title={`Delete Player: #${playerToDelete?.jerseyNumber || ""} ${playerToDelete?.name || ""}`}
+        message={
+          <div>
+            <p className="font-semibold text-rose-300">
+              Are you sure you want to delete <strong className="text-white">#{playerToDelete?.jerseyNumber} {playerToDelete?.name}</strong> from the roster?
+            </p>
+            <p className="mt-2 text-gray-400">
+              This will remove their photo from storage and drop them from the team. Past game log events will remain in historical records.
+            </p>
+          </div>
+        }
+        confirmText="Delete Player"
+        cancelText="Cancel"
+        variant="danger"
+        onConfirm={handleConfirmDeletePlayer}
+        onCancel={() => setPlayerToDelete(null)}
+      />
     </div>
   );
 };
