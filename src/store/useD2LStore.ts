@@ -92,6 +92,14 @@ interface D2LState {
   setGameQuarter: (quarter: Quarter) => void;
   setGameScore: (homeScore: number, awayScore: number) => void;
   setGameStatus: (status: Game["status"]) => void;
+  finalizeGame: (gameId?: string) => Promise<{
+    success: boolean;
+    error?: string;
+    game?: Game;
+    homeTeam?: Team;
+    awayTeam?: Team;
+    boxScore?: ReturnType<D2LState["calculateBoxScore"]>;
+  }>;
 
   // Actions: On-court Substitutions
   togglePlayerOnCourt: (teamId: string, playerId: string) => void;
@@ -451,6 +459,61 @@ export const useD2LStore = create<D2LState>()(
         if (game) {
           get().updateGame(game.id, { status });
         }
+      },
+
+      finalizeGame: async (targetGameId) => {
+        const state = get();
+        const gameId = targetGameId || state.activeGameId;
+        const game = state.games.find((g) => g.id === gameId) || state.getActiveGame();
+
+        if (!game) {
+          return { success: false, error: "No active game found to finalize." };
+        }
+
+        const { homeTeam, awayTeam } = state.getGameTeams(game.id);
+
+        // If game was not previously marked final, update team standings
+        if (game.status !== "final") {
+          await state.updateGame(game.id, { status: "final" });
+
+          if (homeTeam && awayTeam) {
+            const homeWon = game.homeScore > game.awayScore;
+            const awayWon = game.awayScore > game.homeScore;
+
+            const homeUpdates: Partial<Team> = {
+              wins: homeTeam.wins + (homeWon ? 1 : 0),
+              losses: homeTeam.losses + (awayWon ? 1 : 0),
+              pointsFor: homeTeam.pointsFor + game.homeScore,
+              pointsAgainst: homeTeam.pointsAgainst + game.awayScore,
+              streak: homeWon ? "W1" : awayWon ? "L1" : homeTeam.streak,
+            };
+
+            const awayUpdates: Partial<Team> = {
+              wins: awayTeam.wins + (awayWon ? 1 : 0),
+              losses: awayTeam.losses + (homeWon ? 1 : 0),
+              pointsFor: awayTeam.pointsFor + game.awayScore,
+              pointsAgainst: awayTeam.pointsAgainst + game.homeScore,
+              streak: awayWon ? "W1" : homeWon ? "L1" : awayTeam.streak,
+            };
+
+            await state.updateTeam(homeTeam.id, homeUpdates);
+            await state.updateTeam(awayTeam.id, awayUpdates);
+          }
+        }
+
+        const freshState = get();
+        const updatedGame = freshState.games.find((g) => g.id === game.id) || { ...game, status: "final" as const };
+        const freshHomeTeam = freshState.teams.find((t) => t.id === game.homeTeamId) || homeTeam;
+        const freshAwayTeam = freshState.teams.find((t) => t.id === game.awayTeamId) || awayTeam;
+        const boxScore = freshState.calculateBoxScore(game.id);
+
+        return {
+          success: true,
+          game: updatedGame,
+          homeTeam: freshHomeTeam,
+          awayTeam: freshAwayTeam,
+          boxScore,
+        };
       },
 
       togglePlayerOnCourt: (teamId, playerId) => {

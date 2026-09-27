@@ -1,9 +1,12 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { useD2LStore } from "@/store/useD2LStore";
 import { Quarter } from "@/lib/types";
 import { TeamLogo } from "@/components/common/TeamLogo";
+import { FinalizeGameModal } from "./FinalizeGameModal";
+import { exportBoxScorePDF } from "@/lib/pdfGenerator";
+import { CheckCircle2, Lock, Download, FileText } from "lucide-react";
 
 export const LiveScoreboard: React.FC = () => {
   const {
@@ -11,10 +14,16 @@ export const LiveScoreboard: React.FC = () => {
     getGameTeams,
     setGameQuarter,
     setGameStatus,
+    finalizeGame,
+    calculateBoxScore,
+    currentStaff,
+    isAuthenticated,
   } = useD2LStore();
 
   const game = getActiveGame();
   const { homeTeam, awayTeam } = getGameTeams();
+
+  const [isFinalizeModalOpen, setIsFinalizeModalOpen] = useState(false);
 
   if (!game || !homeTeam || !awayTeam) {
     return (
@@ -26,28 +35,55 @@ export const LiveScoreboard: React.FC = () => {
   }
 
   const quarters: Quarter[] = ["Q1", "Q2", "Q3", "Q4", "OT1"];
+  const isFinal = game.status === "final";
+
+  // System Admin or active logged-in staff can finalize
+  const canFinalize = isAuthenticated && (currentStaff?.role === "admin" || currentStaff?.role === "staff");
+
+  const handleConfirmFinalize = async () => {
+    const result = await finalizeGame(game.id);
+    if (result.success && result.game && result.homeTeam && result.awayTeam && result.boxScore) {
+      // Trigger PDF Export immediately
+      exportBoxScorePDF(result.game, result.homeTeam, result.awayTeam, result.boxScore);
+    }
+    setIsFinalizeModalOpen(false);
+  };
+
+  const handleManualPDFExport = () => {
+    const boxScore = calculateBoxScore(game.id);
+    exportBoxScorePDF(game, homeTeam, awayTeam, boxScore);
+  };
 
   return (
     <div className="bg-gradient-to-b from-d2l-court via-d2l-panelDark to-d2l-dark rounded-xl border-2 border-d2l-forestLight/80 shadow-2xl p-2.5 sm:p-4 text-white">
-      {/* Top Meta Bar: Status, Location */}
-      <div className="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-d2l-borderDark text-[11px] text-gray-300">
+      {/* Top Meta Bar: Status, Location, Finalize Button */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2 pb-2 border-b border-d2l-borderDark text-[11px] text-gray-300">
         <div className="flex items-center gap-1.5">
           <span className="font-semibold text-d2l-gold">{game.season}</span>
           <span>•</span>
           <span className="truncate hidden sm:inline text-gray-400">{game.venue}</span>
         </div>
 
-        {/* Status Pill */}
-        <div className="flex items-center gap-1.5">
+        {/* Right Side: Status Pill & Prominent Finalize / PDF Button */}
+        <div className="flex items-center gap-2">
+          {/* Status Dropdown */}
           <select
             value={game.status}
-            onChange={(e) => setGameStatus(e.target.value as any)}
-            className={`text-xs font-bold px-2 py-0.5 rounded cursor-pointer border uppercase ${
-              game.status === "live"
-                ? "bg-d2l-orange/20 text-d2l-orange border-d2l-orange animate-pulse"
-                : game.status === "final"
-                ? "bg-gray-800 text-gray-300 border-gray-600"
-                : "bg-emerald-900/40 text-emerald-300 border-emerald-600"
+            onChange={(e) => {
+              const newStatus = e.target.value as any;
+              if (newStatus === "final") {
+                setIsFinalizeModalOpen(true);
+              } else {
+                setGameStatus(newStatus);
+              }
+            }}
+            disabled={isFinal}
+            className={`text-xs font-bold px-2 py-1 rounded border uppercase transition ${
+              isFinal
+                ? "bg-gray-800 text-gray-400 border-gray-600 cursor-not-allowed"
+                : game.status === "live"
+                ? "bg-d2l-orange/20 text-d2l-orange border-d2l-orange animate-pulse cursor-pointer"
+                : "bg-emerald-900/40 text-emerald-300 border-emerald-600 cursor-pointer"
             }`}
           >
             <option value="scheduled">Scheduled</option>
@@ -55,6 +91,38 @@ export const LiveScoreboard: React.FC = () => {
             <option value="halftime">Halftime</option>
             <option value="final">Final</option>
           </select>
+
+          {/* Prominent FINALIZE GAME Button (Visible when active) */}
+          {!isFinal ? (
+            <button
+              onClick={() => setIsFinalizeModalOpen(true)}
+              disabled={!canFinalize}
+              className={`px-3 py-1 rounded-lg font-athletic font-bold text-xs uppercase tracking-wider flex items-center gap-1.5 transition shadow-lg ${
+                canFinalize
+                  ? "bg-gradient-to-r from-d2l-orange to-amber-500 hover:from-d2l-orangeHover hover:to-amber-400 text-white shadow-orange-950/50"
+                  : "bg-gray-800 text-gray-500 border border-gray-700 cursor-not-allowed"
+              }`}
+              title={canFinalize ? "Officially finalize game and lock stats" : "Login required to finalize game"}
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+              <span>Finalize Game</span>
+            </button>
+          ) : (
+            /* Re-export PDF Box Score Button (Visible when finalized) */
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] uppercase font-bold text-emerald-400 bg-emerald-950 px-2 py-0.5 rounded border border-emerald-500/40 flex items-center gap-1">
+                <Lock className="w-3 h-3 text-emerald-400" /> Locked
+              </span>
+              <button
+                onClick={handleManualPDFExport}
+                className="px-2.5 py-1 rounded-lg font-athletic font-bold text-xs uppercase tracking-wider bg-d2l-forest hover:bg-d2l-forestLight text-d2l-gold border border-d2l-gold/40 flex items-center gap-1 transition shadow"
+                title="Export Official PDF Box Score"
+              >
+                <Download className="w-3.5 h-3.5 text-d2l-gold" />
+                <span>PDF Box Score</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -109,10 +177,13 @@ export const LiveScoreboard: React.FC = () => {
               return (
                 <button
                   key={q}
+                  disabled={isFinal}
                   onClick={() => setGameQuarter(q)}
                   className={`px-2 py-1 rounded text-xs font-bold font-athletic transition ${
                     isCurrent
                       ? "bg-d2l-gold text-black shadow font-black scale-105"
+                      : isFinal
+                      ? "bg-d2l-forest/30 text-gray-600 cursor-not-allowed"
                       : "bg-d2l-forest/60 text-gray-400 hover:text-white"
                   }`}
                 >
@@ -125,7 +196,7 @@ export const LiveScoreboard: React.FC = () => {
           {/* Centered Period Badge */}
           <div className="px-3 py-1 rounded-md bg-black/50 border border-d2l-borderDark text-center">
             <span className="font-athletic font-extrabold text-xs uppercase tracking-widest text-d2l-gold">
-              PERIOD: {game.quarter}
+              {isFinal ? "GAME FINAL" : `PERIOD: ${game.quarter}`}
             </span>
           </div>
         </div>
@@ -170,6 +241,17 @@ export const LiveScoreboard: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      <FinalizeGameModal
+        isOpen={isFinalizeModalOpen}
+        game={game}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        canFinalize={canFinalize}
+        onConfirm={handleConfirmFinalize}
+        onCancel={() => setIsFinalizeModalOpen(false)}
+      />
     </div>
   );
 };

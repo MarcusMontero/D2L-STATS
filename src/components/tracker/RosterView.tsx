@@ -173,13 +173,23 @@ export const RosterView: React.FC<RosterViewProps> = ({
                     {/* 1-TAP IN / OUT STATUS TOGGLE */}
                     <button
                       type="button"
-                      title={isOnCourt ? "Click to Sub Out (Bench)" : "Click to Sub In (On Court)"}
+                      disabled={game.status === "final"}
+                      title={
+                        game.status === "final"
+                          ? "Game is finalized — substitutions locked"
+                          : isOnCourt
+                          ? "Click to Sub Out (Bench)"
+                          : "Click to Sub In (On Court)"
+                      }
                       onClick={(e) => {
                         e.stopPropagation();
+                        if (game.status === "final") return;
                         togglePlayerOnCourt(team.id, player.id);
                       }}
                       className={`px-2 py-1 rounded text-[10px] font-bold font-athletic tracking-wide transition border ${
-                        isOnCourt
+                        game.status === "final"
+                          ? "bg-gray-800 text-gray-500 border-gray-700 cursor-not-allowed opacity-50"
+                          : isOnCourt
                           ? "bg-emerald-600/80 hover:bg-emerald-500 text-white border-emerald-400 shadow-sm"
                           : "bg-gray-800/80 hover:bg-gray-700 text-gray-400 border-gray-700"
                       }`}
@@ -187,6 +197,7 @@ export const RosterView: React.FC<RosterViewProps> = ({
                       {isOnCourt ? "ON COURT" : "BENCH"}
                     </button>
                   </div>
+
                 </div>
               );
             })
