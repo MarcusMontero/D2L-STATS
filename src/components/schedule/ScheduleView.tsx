@@ -5,7 +5,7 @@ import { useD2LStore } from "@/store/useD2LStore";
 import { Game } from "@/lib/types";
 import { exportSchedulePDF } from "@/lib/pdfGenerator";
 import { exportScheduleCsv, parseScheduleCsv } from "@/lib/csvHelper";
-import { buildSyntheticEvents, detectCsvFormat, parseHistoricalCsv, resolveOrCreatePlayer, resolveTeamId } from "@/lib/historicalCsvHelper";
+import { buildImportedTeam, buildSyntheticEvents, detectCsvFormat, parseHistoricalCsv, resolveOrCreatePlayer, resolveTeamId } from "@/lib/historicalCsvHelper";
 import {
   CalendarDays,
   Plus,
@@ -33,6 +33,7 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
     players,
     activeLeagueId,
     leagues,
+    addTeam,
     addGame,
     updateGame,
     deleteGame,
@@ -71,7 +72,15 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const activeLeague = leagues.find((l) => l.id === activeLeagueId) || leagues[0];
+  const activeLeague = leagues.find((l) => l.id === activeLeagueId) || leagues[0] || {
+    id: "d2l-season-10",
+    name: "D2L Season 10",
+    season: "Season 10 - 2026",
+    location: "Ayala Alabang Village",
+    isActive: true,
+  };
+  const importLeagueId = activeLeague.id;
+  const importSeason = activeLeague.season;
 
   const filteredGames = games.filter((g) => {
     if (statusFilter !== "ALL" && g.status !== statusFilter) return false;
@@ -201,15 +210,24 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
       }
 
       if (format === "schedule") {
-        const importedGames = await parseScheduleCsv(file, activeLeague.id, activeLeague.season);
-        const scheduleGames = importedGames.map((game, index) => {
-          const homeTeam = teams.find((team) => team.id === game.homeTeamId || team.name.toLowerCase() === game.homeTeamId.toLowerCase() || team.shortName.toLowerCase() === game.homeTeamId.toLowerCase());
-          const awayTeam = teams.find((team) => team.id === game.awayTeamId || team.name.toLowerCase() === game.awayTeamId.toLowerCase() || team.shortName.toLowerCase() === game.awayTeamId.toLowerCase());
-          if (!homeTeam || !awayTeam) {
-            throw new Error(`Row ${index + 2}: schedule teams must match existing teams ("${game.homeTeamId}" vs "${game.awayTeamId}").`);
-          }
-          return { ...game, homeTeamId: homeTeam.id, awayTeamId: awayTeam.id };
-        });
+        const importedGames = await parseScheduleCsv(file, importLeagueId, importSeason);
+        const knownTeams = [...teams];
+        const scheduleGames: Game[] = [];
+        for (let index = 0; index < importedGames.length; index += 1) {
+          const game = importedGames[index];
+          const resolveOrCreateScheduleTeam = async (teamValue: string, column: string) => {
+            const existing = knownTeams.find((team) => team.id === teamValue || team.name.toLowerCase() === teamValue.toLowerCase() || team.shortName.toLowerCase() === teamValue.toLowerCase());
+            if (existing?.id) return existing.id;
+            const created = buildImportedTeam(teamValue, importLeagueId);
+            const result = await addTeam(created);
+            if (!result.success) throw new Error(`Row ${index + 2}: could not create ${column} team "${teamValue}": ${result.error || "Supabase rejected the team."}`);
+            knownTeams.push(created);
+            return created.id;
+          };
+          const homeTeamId = await resolveOrCreateScheduleTeam(game.homeTeamId, "home");
+          const awayTeamId = await resolveOrCreateScheduleTeam(game.awayTeamId, "away");
+          scheduleGames.push({ ...game, homeTeamId, awayTeamId });
+        }
         for (const game of scheduleGames) await addGame(game);
         alert(`Successfully imported ${scheduleGames.length} schedule game(s).`);
         return;
@@ -220,24 +238,32 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
         throw new Error(parsed.globalErrors.join("\n") || "No valid historical game rows were found.");
       }
       const gamesToInsert: Game[] = [];
+      const newTeams = [] as typeof teams;
       const newPlayers = [] as typeof players;
       const events = [] as ReturnType<typeof buildSyntheticEvents>;
       const knownPlayers = [...players];
+      const knownTeams = [...teams];
       for (const parsedGame of parsed.games) {
-        const homeTeamId = resolveTeamId(parsedGame.homeTeamName, teams);
-        const awayTeamId = resolveTeamId(parsedGame.awayTeamName, teams);
-        if (!homeTeamId || !awayTeamId) throw new Error(`Game ${parsedGame.gameDate}: team names must match existing teams: "${parsedGame.homeTeamName}" and "${parsedGame.awayTeamName}".`);
+        const getOrCreateTeamId = (name: string) => {
+          const existingId = resolveTeamId(name, knownTeams);
+          if (existingId) return existingId;
+          const created = buildImportedTeam(name, importLeagueId);
+          knownTeams.push(created);
+          newTeams.push(created);
+          return created.id;
+        };
+        const homeTeamId = getOrCreateTeamId(parsedGame.homeTeamName);
+        const awayTeamId = getOrCreateTeamId(parsedGame.awayTeamName);
         const gameId = `game-hist-${parsedGame.gameDate}-${(parsedGame.homeTeamName + parsedGame.awayTeamName).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-        gamesToInsert.push({ id: gameId, leagueId: activeLeague.id, season: activeLeague.season, homeTeamId, awayTeamId, homeScore: parsedGame.homeScore, awayScore: parsedGame.awayScore, quarter: "Q4", status: "final", scheduledAt: new Date(`${parsedGame.gameDate}T12:00:00`).toISOString(), venue: "Ayala Alabang Village Main Gym", homeFouls: 0, awayFouls: 0, officials: [], quarterScores: { home: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.homeScore }, away: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.awayScore } }, isHistoricalImport: true });
+        gamesToInsert.push({ id: gameId, leagueId: importLeagueId, season: importSeason, homeTeamId, awayTeamId, homeScore: parsedGame.homeScore, awayScore: parsedGame.awayScore, quarter: "Q4", status: "final", scheduledAt: new Date(`${parsedGame.gameDate}T12:00:00`).toISOString(), venue: "Ayala Alabang Village Main Gym", homeFouls: 0, awayFouls: 0, officials: [], quarterScores: { home: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.homeScore }, away: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.awayScore } }, isHistoricalImport: true });
         for (const row of parsedGame.players) {
-          const teamId = row.teamName.toLowerCase() === parsedGame.homeTeamName.toLowerCase() ? homeTeamId : row.teamName.toLowerCase() === parsedGame.awayTeamName.toLowerCase() ? awayTeamId : resolveTeamId(row.teamName, teams);
-          if (!teamId) throw new Error(`Row ${row.rowIndex}: player team "${row.teamName}" does not match an existing team.`);
+          const teamId = row.teamName.toLowerCase() === parsedGame.homeTeamName.toLowerCase() ? homeTeamId : row.teamName.toLowerCase() === parsedGame.awayTeamName.toLowerCase() ? awayTeamId : getOrCreateTeamId(row.teamName);
           const resolved = resolveOrCreatePlayer(row, teamId, knownPlayers);
           if (resolved.isNew) { newPlayers.push(resolved.player); knownPlayers.push(resolved.player); }
           events.push(...buildSyntheticEvents(row, gameId, teamId, resolved.player.id, Date.now()));
         }
       }
-      const result = await importHistoricalGames(gamesToInsert, newPlayers, events);
+      const result = await importHistoricalGames(gamesToInsert, newPlayers, events, newTeams);
       if (!result.success) throw new Error(result.error || "Supabase rejected the historical import.");
       alert(`Successfully imported ${gamesToInsert.length} finalized historical game(s) and ${events.length} stat events.`);
     } catch (error: any) {

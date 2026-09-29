@@ -385,6 +385,28 @@ export function resolveTeamId(name: string, teams: Team[]): string | null {
   );
 }
 
+export function buildImportedTeam(name: string, leagueId: string): Team {
+  const cleanName = name.trim();
+  const slug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "team";
+  const uniqueId = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `team-csv-${slug}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    id: uniqueId,
+    leagueId,
+    name: cleanName,
+    shortName: cleanName.slice(0, 4).toUpperCase(),
+    logo: "",
+    primaryColor: "#0B3B24",
+    secondaryColor: "#D4AF37",
+    wins: 0,
+    losses: 0,
+    pointsFor: 0,
+    pointsAgainst: 0,
+    streak: "-",
+  };
+}
+
 // ─── Resolve or build a new player ───────────────────────────────────────────
 
 export function resolveOrCreatePlayer(

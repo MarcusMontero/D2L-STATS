@@ -21,6 +21,7 @@ import {
   ParsedPlayerRow,
   buildSyntheticEvents,
   buildTemplateCsv,
+  buildImportedTeam,
   resolveTeamId,
   resolveOrCreatePlayer,
 } from "@/lib/historicalCsvHelper";
@@ -40,7 +41,7 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
   leagueId,
   season,
 }) => {
-  const { teams, players, importHistoricalGames } = useD2LStore();
+  const { teams, players, importHistoricalGames, setToastMessage } = useD2LStore();
 
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("upload");
@@ -116,15 +117,23 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
 
     // Running players list so we detect duplicates within the same import batch
     const allKnownPlayers = [...players];
+    const allKnownTeams = [...teams];
+    const newTeamsToInsert: typeof teams = [];
+    const importLeagueId = leagueId || "d2l-season-10";
+    const importSeason = season || "Season 10 - 2026";
+
+    const getOrCreateTeamId = (name: string) => {
+      const existingId = resolveTeamId(name, allKnownTeams);
+      if (existingId) return existingId;
+      const created = buildImportedTeam(name, importLeagueId);
+      allKnownTeams.push(created);
+      newTeamsToInsert.push(created);
+      return created.id;
+    };
 
     for (const pg of parsedGames) {
-      const homeTeamId = resolveTeamId(pg.homeTeamName, teams);
-      const awayTeamId = resolveTeamId(pg.awayTeamName, teams);
-      if (!homeTeamId || !awayTeamId) {
-        setImportError(`Game ${pg.gameDate}, row ${pg.players[0]?.rowIndex || "?"}: home and away teams must match existing teams ("${pg.homeTeamName}" vs "${pg.awayTeamName}").`);
-        setStep("preview");
-        return;
-      }
+      const homeTeamId = getOrCreateTeamId(pg.homeTeamName);
+      const awayTeamId = getOrCreateTeamId(pg.awayTeamName);
 
       const gameId = `game-hist-${pg.gameDate}-${(pg.homeTeamName + pg.awayTeamName).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
 
@@ -132,8 +141,8 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
 
       const game: Game = {
         id: gameId,
-        leagueId,
-        season,
+        leagueId: importLeagueId,
+        season: importSeason,
         homeTeamId,
         awayTeamId,
         homeScore: pg.homeScore,
@@ -168,12 +177,7 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
         const teamId =
           isHome ??
           isAway ??
-          resolveTeamId(pr.teamName, teams);
-        if (!teamId) {
-          setImportError(`Row ${pr.rowIndex}: player team "${pr.teamName}" does not match an existing team.`);
-          setStep("preview");
-          return;
-        }
+          getOrCreateTeamId(pr.teamName);
 
         const { player, isNew } = resolveOrCreatePlayer(pr, teamId, allKnownPlayers);
 
@@ -187,10 +191,14 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
       }
     }
 
-    const res = await importHistoricalGames(gamesToInsert, newPlayersToInsert, eventsToInsert);
+    const res = await importHistoricalGames(gamesToInsert, newPlayersToInsert, eventsToInsert, newTeamsToInsert);
 
     if (res.success) {
       setImportedCount(gamesToInsert.length);
+      setToastMessage({
+        type: "success",
+        text: `Successfully imported ${gamesToInsert.length} game${gamesToInsert.length === 1 ? "" : "s"} with ${eventsToInsert.length} player stats.`,
+      });
       setStep("done");
     } else {
       setImportError(res.error || "Unknown error during import");

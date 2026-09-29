@@ -89,7 +89,8 @@ interface D2LState {
   importHistoricalGames: (
     games: Game[],
     newPlayers: Player[],
-    events: StatEvent[]
+    events: StatEvent[],
+    newTeams?: Team[]
   ) => Promise<{ success: boolean; error?: string }>;
 
   // Actions: Games & Scores
@@ -511,9 +512,17 @@ export const useD2LStore = create<D2LState>()(
         }
       },
 
-      importHistoricalGames: async (games, newPlayers, events) => {
+      importHistoricalGames: async (games, newPlayers, events, newTeams = []) => {
         try {
-          // 1. Persist new auto-created players first (FK dependency)
+          // 1. Persist auto-created teams before their player/game foreign keys.
+          for (const team of newTeams) {
+            const res = await dbInsertTeam(team);
+            if (!res.success) {
+              return { success: false, error: `Team "${team.name}": ${res.error || "insert failed"}` };
+            }
+          }
+
+          // 2. Persist new auto-created players first (FK dependency)
           for (const p of newPlayers) {
             const res = await dbInsertPlayer(p);
             if (!res.success) {
@@ -521,7 +530,7 @@ export const useD2LStore = create<D2LState>()(
             }
           }
 
-          // 2. Persist each game
+          // 3. Persist each game
           for (const g of games) {
             const res = await dbInsertGame(g);
             if (!res.success) {
@@ -529,7 +538,7 @@ export const useD2LStore = create<D2LState>()(
             }
           }
 
-          // 3. Persist synthetic stat_events in batches of 100
+          // 4. Persist synthetic stat_events in batches of 100
           const BATCH = 100;
           for (let i = 0; i < events.length; i += BATCH) {
             const batch = events.slice(i, i + BATCH);
@@ -544,8 +553,12 @@ export const useD2LStore = create<D2LState>()(
             }
           }
 
-          // 4. Merge into local Zustand state
+          // 5. Merge into local Zustand state
           set((s) => ({
+            teams: [
+              ...s.teams.filter((t) => !newTeams.some((nt) => nt.id === t.id)),
+              ...newTeams,
+            ],
             players: [
               ...s.players.filter((p) => !newPlayers.some((np) => np.id === p.id)),
               ...newPlayers,
@@ -558,7 +571,7 @@ export const useD2LStore = create<D2LState>()(
           }));
 
           console.log(
-            `✅ importHistoricalGames: imported ${games.length} games, ${newPlayers.length} new players, ${events.length} stat events`
+            `✅ importHistoricalGames: imported ${games.length} games, ${newTeams.length} new teams, ${newPlayers.length} new players, ${events.length} stat events`
           );
           return { success: true };
         } catch (err: any) {

@@ -105,7 +105,13 @@ export const LeagueSetupView: React.FC = () => {
 
   const rosterFileInputRef = useRef<HTMLInputElement>(null);
 
-  const activeLeague = leagues.find((l) => l.id === activeLeagueId) || leagues[0];
+  const activeLeague = leagues.find((l) => l.id === activeLeagueId) || leagues[0] || {
+    id: "d2l-season-10",
+    name: "D2L Season 10",
+    season: "Season 10 - 2026",
+    location: "Ayala Alabang Village",
+    isActive: true,
+  };
   const currentTeam = teams.find((t) => t.id === selectedTeamId) || teams[0];
   const teamPlayers = players.filter((p) => p.teamId === selectedTeamId);
 
