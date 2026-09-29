@@ -1274,6 +1274,8 @@ export const LeagueSetupView: React.FC = () => {
       <HistoricalImportModal
         isOpen={isHistoricalImportOpen}
         onClose={() => setIsHistoricalImportOpen(false)}
+        leagueId={activeLeague.id}
+        season={activeLeague.season}
       />
     </div>
   );

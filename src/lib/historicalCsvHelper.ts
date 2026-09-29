@@ -59,6 +59,33 @@ export const HISTORICAL_CSV_HEADERS = [
   "fta",
 ] as const;
 
+const HISTORICAL_REQUIRED_HEADERS = [
+  "game_date",
+  "home_team",
+  "away_team",
+  "player_name",
+  "team",
+  "points",
+  "fgm",
+  "fga",
+] as const;
+
+export type CsvImportFormat = "historical" | "schedule" | "unknown";
+
+export function normaliseCsvHeader(header: string): string {
+  return header.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, "_");
+}
+
+export function detectCsvFormat(csvText: string): CsvImportFormat {
+  const firstLine = csvText.split(/\r?\n/, 1)[0] || "";
+  const headers = parseCsvLine(firstLine).map(normaliseCsvHeader);
+  const historicalMarkers = ["player_name", "points", "fgm", "fga"];
+  if (historicalMarkers.every((header) => headers.includes(header))) return "historical";
+  if (["game_date", "home_team", "away_team"].every((header) => headers.includes(header))) return "schedule";
+  if (["home_team_id", "away_team_id", "scheduled_at"].every((header) => headers.includes(header))) return "schedule";
+  return "unknown";
+}
+
 // ─── Parsed/preview structures ───────────────────────────────────────────────
 
 export interface ParsedPlayerRow {
@@ -157,8 +184,8 @@ export function parseHistoricalCsv(csvText: string): HistoricalImportPreview {
   }
 
   // Parse header
-  const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase().replace(/\s+/g, "_"));
-  const required = HISTORICAL_CSV_HEADERS as readonly string[];
+  const headers = parseCsvLine(lines[0]).map(normaliseCsvHeader);
+  const required = HISTORICAL_REQUIRED_HEADERS as readonly string[];
   const missing = required.filter((h) => !headers.includes(h));
   if (missing.length > 0) {
     return {

@@ -112,19 +112,36 @@ export function parseScheduleCsv(file: File, leagueId: string, season: string): 
     Papa.parse<ScheduleCsvRow>(file, {
       header: true,
       skipEmptyLines: true,
+      transformHeader: (header) => header.replace(/^\uFEFF/, "").trim().toLowerCase().replace(/\s+/g, "_"),
       complete: (results) => {
         try {
-          const games: Game[] = results.data.map((row, index) => ({
+          if (results.errors.length > 0) {
+            const firstError = results.errors[0];
+            throw new Error(`Row ${(firstError.row ?? 0) + 2}: ${firstError.message}.`);
+          }
+          const fields = results.meta.fields?.map((field) => field.trim().toLowerCase()) || [];
+          const hasNameFormat = ["game_date", "home_team", "away_team"].every((field) => fields.includes(field));
+          const hasIdFormat = ["home_team_id", "away_team_id", "scheduled_at"].every((field) => fields.includes(field));
+          if (!hasNameFormat && !hasIdFormat) {
+            throw new Error(`Header is not a supported schedule CSV. Required headers: game_date, home_team, away_team, venue, scheduled_at.`);
+          }
+          const games: Game[] = results.data.map((row, index) => {
+            const source = row as ScheduleCsvRow & { game_date?: string; home_team?: string; away_team?: string };
+            const scheduledAt = source.scheduled_at || source.game_date;
+            if (!scheduledAt) throw new Error(`Row ${index + 2}: scheduled_at or game_date is required.`);
+            if (!source.home_team_id && !source.home_team) throw new Error(`Row ${index + 2}: home_team or home_team_id is required.`);
+            if (!source.away_team_id && !source.away_team) throw new Error(`Row ${index + 2}: away_team or away_team_id is required.`);
+            return {
             id: row.game_id || `game-csv-${Date.now()}-${index}`,
             leagueId,
             season,
-            homeTeamId: row.home_team_id || "",
-            awayTeamId: row.away_team_id || "",
+            homeTeamId: row.home_team_id || source.home_team || "",
+            awayTeamId: row.away_team_id || source.away_team || "",
             homeScore: Number(row.home_score) || 0,
             awayScore: Number(row.away_score) || 0,
             quarter: "Q1",
             status: (row.status as Game["status"]) || "scheduled",
-            scheduledAt: row.scheduled_at || new Date().toISOString(),
+            scheduledAt,
             venue: row.venue || "Ayala Alabang Village Main Gym",
             homeFouls: 0,
             awayFouls: 0,
@@ -133,10 +150,11 @@ export function parseScheduleCsv(file: File, leagueId: string, season: string): 
               home: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
               away: { Q1: 0, Q2: 0, Q3: 0, Q4: 0 },
             },
-          }));
+            };
+          });
           resolve(games);
         } catch (err) {
-          reject(err);
+          reject(err instanceof Error ? err : new Error("Unable to parse schedule CSV."));
         }
       },
       error: (err) => reject(err),

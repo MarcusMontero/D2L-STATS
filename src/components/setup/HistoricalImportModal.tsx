@@ -28,6 +28,8 @@ import {
 interface HistoricalImportModalProps {
   isOpen: boolean;
   onClose: () => void;
+  leagueId: string;
+  season: string;
 }
 
 type Step = "upload" | "preview" | "importing" | "done";
@@ -35,6 +37,8 @@ type Step = "upload" | "preview" | "importing" | "done";
 export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
   isOpen,
   onClose,
+  leagueId,
+  season,
 }) => {
   const { teams, players, importHistoricalGames } = useD2LStore();
 
@@ -116,20 +120,22 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
     for (const pg of parsedGames) {
       const homeTeamId = resolveTeamId(pg.homeTeamName, teams);
       const awayTeamId = resolveTeamId(pg.awayTeamName, teams);
+      if (!homeTeamId || !awayTeamId) {
+        setImportError(`Game ${pg.gameDate}, row ${pg.players[0]?.rowIndex || "?"}: home and away teams must match existing teams ("${pg.homeTeamName}" vs "${pg.awayTeamName}").`);
+        setStep("preview");
+        return;
+      }
 
-      const gameId = `game-hist-${pg.gameDate}-${(pg.homeTeamName + pg.awayTeamName)
-        .replace(/\s+/g, "")
-        .toLowerCase()
-        .slice(0, 12)}-${Date.now()}`;
+      const gameId = `game-hist-${pg.gameDate}-${(pg.homeTeamName + pg.awayTeamName).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
 
       const scheduledAt = new Date(pg.gameDate + "T12:00:00").toISOString();
 
       const game: Game = {
         id: gameId,
-        leagueId: "d2l-s10",
-        season: "Season 10 - 2026",
-        homeTeamId: homeTeamId || `team-unknown-${pg.homeTeamName.replace(/\s+/g, "-").toLowerCase()}`,
-        awayTeamId: awayTeamId || `team-unknown-${pg.awayTeamName.replace(/\s+/g, "-").toLowerCase()}`,
+        leagueId,
+        season,
+        homeTeamId,
+        awayTeamId,
         homeScore: pg.homeScore,
         awayScore: pg.awayScore,
         quarter: "Q4",
@@ -162,8 +168,12 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
         const teamId =
           isHome ??
           isAway ??
-          resolveTeamId(pr.teamName, teams) ??
-          `team-unknown-${pr.teamName.replace(/\s+/g, "-").toLowerCase()}`;
+          resolveTeamId(pr.teamName, teams);
+        if (!teamId) {
+          setImportError(`Row ${pr.rowIndex}: player team "${pr.teamName}" does not match an existing team.`);
+          setStep("preview");
+          return;
+        }
 
         const { player, isNew } = resolveOrCreatePlayer(pr, teamId, allKnownPlayers);
 

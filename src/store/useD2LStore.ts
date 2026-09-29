@@ -517,7 +517,7 @@ export const useD2LStore = create<D2LState>()(
           for (const p of newPlayers) {
             const res = await dbInsertPlayer(p);
             if (!res.success) {
-              console.warn("⚠️ importHistoricalGames: failed to insert player", p.name, res.error);
+              return { success: false, error: `Player "${p.name}": ${res.error || "insert failed"}` };
             }
           }
 
@@ -525,7 +525,7 @@ export const useD2LStore = create<D2LState>()(
           for (const g of games) {
             const res = await dbInsertGame(g);
             if (!res.success) {
-              console.warn("⚠️ importHistoricalGames: failed to insert game", g.id, res.error);
+              return { success: false, error: `Game "${g.id}": ${res.error || "insert failed"}` };
             }
           }
 
@@ -533,7 +533,15 @@ export const useD2LStore = create<D2LState>()(
           const BATCH = 100;
           for (let i = 0; i < events.length; i += BATCH) {
             const batch = events.slice(i, i + BATCH);
-            await Promise.all(batch.map((e) => dbInsertStatEvent(e)));
+            const results = await Promise.all(batch.map((e) => dbInsertStatEvent(e)));
+            const failedIndex = results.findIndex((result) => !result.success);
+            if (failedIndex >= 0) {
+              const failedEvent = batch[failedIndex];
+              return {
+                success: false,
+                error: `Stat event "${failedEvent.id}" (${failedEvent.statType}, game ${failedEvent.gameId}): ${results[failedIndex].error || "insert failed"}`,
+              };
+            }
           }
 
           // 4. Merge into local Zustand state
