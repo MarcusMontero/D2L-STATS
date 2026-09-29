@@ -69,7 +69,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab }) => {
     { id: "box-score", label: "📊 Box Score & PDF", minRole: "staff" },
     { id: "teams", label: "🏆 Standings & Teams", minRole: "admin" },
     { id: "players", label: "🌟 Players & Rankings", minRole: "admin" },
-    { id: "schedule", label: "📅 Schedule & Results", minRole: "admin" },
+    { id: "schedule", label: "📅 Schedule & Results", minRole: "staff" },
     { id: "setup", label: "⚙️ League & Setup", minRole: "admin" },
   ];
 

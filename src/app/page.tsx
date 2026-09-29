@@ -177,7 +177,7 @@ export default function Home() {
   }, [loadFromSupabase]);
 
   const isStaff = currentStaff?.role === "staff";
-  const restrictedTabsForStaff = ["teams", "players", "schedule", "setup"];
+  const restrictedTabsForStaff = ["teams", "players", "setup"];
 
   // Automatically divert staff users to tracker if they are on a restricted tab
   useEffect(() => {

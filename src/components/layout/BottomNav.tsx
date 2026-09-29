@@ -26,7 +26,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
     { id: "box-score", label: "Box", icon: FileSpreadsheet, minRole: "staff" },
     { id: "teams", label: "Standings", icon: Trophy, minRole: "admin" },
     { id: "players", label: "Players", icon: Users, minRole: "admin" },
-    { id: "schedule", label: "Schedule", icon: CalendarDays, minRole: "admin" },
+    { id: "schedule", label: "Schedule", icon: CalendarDays, minRole: "staff" },
     { id: "setup", label: "Setup", icon: Settings, minRole: "admin" },
   ];
 
@@ -35,8 +35,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab })
     return currentStaff.role === "admin";
   });
 
-  const gridColsClass =
-    visibleTabs.length === 3 ? "grid-cols-3" : "grid-cols-7";
+  const gridColsClass = visibleTabs.length === 3 ? "grid-cols-3" : visibleTabs.length === 4 ? "grid-cols-4" : "grid-cols-7";
 
   return (
     <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-d2l-panelDark/95 backdrop-blur border-t border-d2l-forestLight/60 shadow-2xl safe-area-bottom">

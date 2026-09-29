@@ -16,6 +16,7 @@ import {
   ChevronRight,
   Edit2,
   Trash2,
+  Search,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
 import { ConfirmModal } from "@/components/common/ConfirmModal";
@@ -39,6 +40,9 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
 
   const isAdmin = currentStaff.role === "admin";
   const [statusFilter, setStatusFilter] = useState<string>("ALL");
+  const [pastGameQuery, setPastGameQuery] = useState("");
+  const [pastGameFrom, setPastGameFrom] = useState("");
+  const [pastGameTo, setPastGameTo] = useState("");
   const [isAddGameOpen, setIsAddGameOpen] = useState(false);
 
   // New Game Form State
@@ -70,6 +74,18 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
     if (statusFilter !== "ALL" && g.status !== statusFilter) return false;
     return true;
   });
+
+  const pastGames = games
+    .filter((g) => {
+      if (g.status !== "final") return false;
+      const home = teams.find((t) => t.id === g.homeTeamId);
+      const away = teams.find((t) => t.id === g.awayTeamId);
+      const query = pastGameQuery.trim().toLowerCase();
+      const names = `${home?.name || ""} ${home?.shortName || ""} ${away?.name || ""} ${away?.shortName || ""}`.toLowerCase();
+      const gameDate = g.scheduledAt.slice(0, 10);
+      return (!query || names.includes(query)) && (!pastGameFrom || gameDate >= pastGameFrom) && (!pastGameTo || gameDate <= pastGameTo);
+    })
+    .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
 
   // Sort chronologically
   filteredGames.sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
@@ -265,6 +281,41 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
           )}
         </div>
       </div>
+
+      {/* Past Games Dashboard: all completed/imported games, newest first. */}
+      <section className="bg-d2l-panelDark rounded-xl border border-d2l-gold/35 p-4 shadow-xl space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div>
+            <h3 className="font-athletic font-black text-xl text-d2l-gold uppercase tracking-wide">Past Games</h3>
+            <p className="text-xs text-gray-400">Completed games and historical imports — newest first.</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <label className="flex items-center gap-1.5 bg-d2l-cardDark border border-d2l-borderDark rounded-lg px-2 text-xs">
+              <Search className="w-3.5 h-3.5 text-d2l-gold" />
+              <input value={pastGameQuery} onChange={(e) => setPastGameQuery(e.target.value)} placeholder="Find a team" className="bg-transparent outline-none py-1.5 w-28 text-white" />
+            </label>
+            <input type="date" value={pastGameFrom} onChange={(e) => setPastGameFrom(e.target.value)} aria-label="Past games start date" className="bg-d2l-cardDark border border-d2l-borderDark rounded-lg px-2 py-1.5 text-xs text-white" />
+            <input type="date" value={pastGameTo} onChange={(e) => setPastGameTo(e.target.value)} aria-label="Past games end date" className="bg-d2l-cardDark border border-d2l-borderDark rounded-lg px-2 py-1.5 text-xs text-white" />
+          </div>
+        </div>
+        {pastGames.length === 0 ? <p className="py-4 text-center text-xs text-gray-400">No completed games match these filters.</p> : (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {pastGames.map((g) => {
+              const home = teams.find((t) => t.id === g.homeTeamId);
+              const away = teams.find((t) => t.id === g.awayTeamId);
+              return <button key={g.id} onClick={() => { void setActiveGame(g.id); onNavigateToBoxScore(g.id); }} className="text-left rounded-xl border border-d2l-borderDark hover:border-d2l-orange bg-gradient-to-r from-d2l-cardDark to-d2l-forest/30 p-3 transition group">
+                <div className="flex justify-between text-[10px] text-gray-400 mb-3"><span>{new Date(g.scheduledAt).toLocaleDateString()}</span><span className="truncate max-w-[220px]">{g.venue}</span></div>
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0"><TeamLogo logo={home?.logo} name={home?.name} size="sm" /><span className="font-athletic font-bold text-white truncate">{home?.name || "HOME"}</span></div>
+                  <div className="font-mono font-black text-xl text-d2l-gold">{g.homeScore} - {g.awayScore}</div>
+                  <div className="flex items-center justify-end gap-2 min-w-0"><span className="font-athletic font-bold text-white truncate text-right">{away?.name || "AWAY"}</span><TeamLogo logo={away?.logo} name={away?.name} size="sm" /></div>
+                </div>
+                <div className="mt-2 text-[10px] font-bold uppercase text-d2l-orange group-hover:text-d2l-gold">Open full box score <ChevronRight className="inline w-3 h-3" /></div>
+              </button>;
+            })}
+          </div>
+        )}
+      </section>
 
       {Object.keys(gamesByMonth).length === 0 && (
         <div className="bg-d2l-panelDark border border-d2l-borderDark rounded-xl p-8 sm:p-12 text-center space-y-3 shadow-lg">
