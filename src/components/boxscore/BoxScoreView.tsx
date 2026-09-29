@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useD2LStore } from "@/store/useD2LStore";
 import { exportBoxScorePDF } from "@/lib/pdfGenerator";
 import { CorrectionStats, PlayerBoxStat } from "@/lib/types";
@@ -16,10 +16,15 @@ import {
 import { TeamLogo } from "@/components/common/TeamLogo";
 
 export const BoxScoreView: React.FC = () => {
-  const { getActiveGame, getGameTeams, calculateBoxScore, currentStaff, saveFinalGameCorrections, statEvents } = useD2LStore();
+  const { games, getActiveGame, getGameTeams, calculateBoxScore, currentStaff, saveFinalGameCorrections, statEvents, setActiveGame } = useD2LStore();
 
-  const game = getActiveGame();
-  const { homeTeam, awayTeam } = getGameTeams();
+  const activeGame = getActiveGame();
+  const fallbackFinalGame = useMemo(() => games
+    .filter((item) => item.status === "final")
+    .slice()
+    .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime())[0], [games]);
+  const game = activeGame || fallbackFinalGame;
+  const { homeTeam, awayTeam } = getGameTeams(game?.id);
   const boxScore = calculateBoxScore(game?.id);
 
   const [copiedRecap, setCopiedRecap] = useState(false);
@@ -28,8 +33,14 @@ export const BoxScoreView: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [draft, setDraft] = useState<Record<string, CorrectionStats>>({});
 
+  // A finalized game remains useful even when a legacy/null app_state pointer
+  // arrives. Promote this same Supabase game to the shared selection once.
+  useEffect(() => {
+    if (!activeGame && fallbackFinalGame) void setActiveGame(fallbackFinalGame.id);
+  }, [activeGame, fallbackFinalGame, setActiveGame]);
+
   if (!game || !homeTeam || !awayTeam) {
-    return <div className="p-8 text-center text-gray-400">No active game selected.</div>;
+    return <div className="p-8 text-center text-gray-400">No completed game is available yet.</div>;
   }
 
   const handleExportPDF = () => {
