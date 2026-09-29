@@ -32,6 +32,17 @@ export interface HistoricalCsvRow {
   threepa: string;
   ftm: string;
   fta: string;
+  q1_home?: string;
+  q2_home?: string;
+  q3_home?: string;
+  q4_home?: string;
+  q1_away?: string;
+  q2_away?: string;
+  q3_away?: string;
+  q4_away?: string;
+  venue?: string;
+  referees?: string;
+  position?: string;
 }
 
 export const HISTORICAL_CSV_HEADERS = [
@@ -106,6 +117,7 @@ export interface ParsedPlayerRow {
   fg3a: number;
   ftm: number;
   fta: number;
+  position?: Player["position"];
   /** Row index in original CSV (1-based, for error reporting) */
   rowIndex: number;
 }
@@ -117,6 +129,10 @@ export interface ParsedHistoricalGame {
   awayTeamName: string;
   homeScore: number;
   awayScore: number;
+  quarterScores: Game["quarterScores"];
+  hasQuarterScores: boolean;
+  venue: string;
+  officials: string[];
   players: ParsedPlayerRow[];
   warnings: string[];
 }
@@ -131,6 +147,17 @@ export interface HistoricalImportPreview {
 function parseNum(v: string): number {
   const n = parseInt(v?.trim() || "0", 10);
   return isNaN(n) ? 0 : n;
+}
+
+function parseOfficials(raw: string): string[] {
+  return raw.split(/[;|]/).map((name) => name.trim()).filter(Boolean);
+}
+
+function parsePosition(raw: string): Player["position"] | undefined {
+  const position = raw.trim().toUpperCase();
+  return ["PG", "SG", "SF", "PF", "C"].includes(position)
+    ? position as Player["position"]
+    : undefined;
 }
 
 /** Accept "YYYY-MM-DD", "MM/DD/YYYY", "M/D/YYYY" */
@@ -231,6 +258,13 @@ export function parseHistoricalCsv(csvText: string): HistoricalImportPreview {
         awayTeamName: awayTeam,
         homeScore: parseNum(row("home_score")),
         awayScore: parseNum(row("away_score")),
+        quarterScores: {
+          home: { Q1: parseNum(row("q1_home")), Q2: parseNum(row("q2_home")), Q3: parseNum(row("q3_home")), Q4: parseNum(row("q4_home")) },
+          away: { Q1: parseNum(row("q1_away")), Q2: parseNum(row("q2_away")), Q3: parseNum(row("q3_away")), Q4: parseNum(row("q4_away")) },
+        },
+        hasQuarterScores: ["q1_home", "q2_home", "q3_home", "q4_home", "q1_away", "q2_away", "q3_away", "q4_away"].every((header) => headers.includes(header)),
+        venue: row("venue"),
+        officials: parseOfficials(row("referees")),
         players: [],
         warnings: [],
       });
@@ -274,6 +308,7 @@ export function parseHistoricalCsv(csvText: string): HistoricalImportPreview {
       fg3a: parseNum(row("threepa")),
       ftm: parseNum(row("ftm")),
       fta: parseNum(row("fta")),
+      position: parsePosition(row("position")),
       rowIndex: rowNum,
     });
   }
@@ -356,7 +391,7 @@ export function buildSyntheticEvents(
 // ─── Template CSV ─────────────────────────────────────────────────────────────
 
 export function buildTemplateCsv(): string {
-  const headers = HISTORICAL_CSV_HEADERS.join(",");
+  const headers = [...HISTORICAL_CSV_HEADERS, "q1_home", "q2_home", "q3_home", "q4_home", "q1_away", "q2_away", "q3_away", "q4_away", "venue", "referees", "position"].join(",");
   const example1 = [
     "2025-11-15", "Ballers FC", "Hoopsters", "72", "65",
     "Juan dela Cruz", "7", "Ballers FC",
@@ -369,7 +404,7 @@ export function buildTemplateCsv(): string {
     "12", "1", "4", "3", "2", "0", "2", "2",
     "5", "10", "1", "3", "1", "2",
   ].join(",");
-  return [headers, example1, example2].join("\n");
+  return [headers, `${example1},16,12,20,24,20,22,18,15,Main Gym,Referee One;Referee Two,PG`, `${example2},16,12,20,24,20,22,18,15,Main Gym,Referee One;Referee Two,SG`].join("\n");
 }
 
 // ─── Resolve team ID from name ────────────────────────────────────────────────
@@ -415,13 +450,19 @@ export function resolveOrCreatePlayer(
   existingPlayers: Player[]
 ): { player: Player; isNew: boolean } {
   const lowerName = row.playerName.toLowerCase();
-  const existing = existingPlayers.find(
-    (p) =>
-      p.teamId === teamId &&
-      (p.name.toLowerCase() === lowerName ||
-        p.jerseyNumber === row.jerseyNumber)
+  const existingByName = existingPlayers.find(
+    (p) => p.teamId === teamId && p.name.toLowerCase() === lowerName
   );
-  if (existing) return { player: existing, isNew: false };
+  const jerseyMatches = existingPlayers.filter(
+    (p) => p.teamId === teamId && p.jerseyNumber === row.jerseyNumber
+  );
+  const existing = existingByName || (jerseyMatches.length === 1 ? jerseyMatches[0] : undefined);
+  if (existing) {
+    return {
+      player: row.position && existing.position !== row.position ? { ...existing, position: row.position } : existing,
+      isNew: false,
+    };
+  }
 
   const nameParts = row.playerName.trim().split(/\s+/);
   const newPlayer: Player = {
@@ -431,7 +472,7 @@ export function resolveOrCreatePlayer(
     name: row.playerName,
     firstName: nameParts[0] || "",
     lastName: nameParts.slice(1).join(" ") || "",
-    position: "SG",
+    position: row.position || "SG",
     isStarter: false,
     isActive: true,
   };

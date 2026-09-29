@@ -255,11 +255,13 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
         const homeTeamId = getOrCreateTeamId(parsedGame.homeTeamName);
         const awayTeamId = getOrCreateTeamId(parsedGame.awayTeamName);
         const gameId = `game-hist-${parsedGame.gameDate}-${(parsedGame.homeTeamName + parsedGame.awayTeamName).replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
-        gamesToInsert.push({ id: gameId, leagueId: importLeagueId, season: importSeason, homeTeamId, awayTeamId, homeScore: parsedGame.homeScore, awayScore: parsedGame.awayScore, quarter: "Q4", status: "final", scheduledAt: new Date(`${parsedGame.gameDate}T12:00:00`).toISOString(), venue: "Ayala Alabang Village Main Gym", homeFouls: 0, awayFouls: 0, officials: [], quarterScores: { home: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.homeScore }, away: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.awayScore } }, isHistoricalImport: true });
+        gamesToInsert.push({ id: gameId, leagueId: importLeagueId, season: importSeason, homeTeamId, awayTeamId, homeScore: parsedGame.homeScore, awayScore: parsedGame.awayScore, quarter: "Q4", status: "final", scheduledAt: new Date(`${parsedGame.gameDate}T12:00:00`).toISOString(), venue: parsedGame.venue || "Ayala Alabang Village Main Gym", homeFouls: 0, awayFouls: 0, officials: parsedGame.officials, quarterScores: parsedGame.hasQuarterScores ? parsedGame.quarterScores : { home: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.homeScore }, away: { Q1: 0, Q2: 0, Q3: 0, Q4: parsedGame.awayScore } }, isHistoricalImport: true });
         for (const row of parsedGame.players) {
           const teamId = row.teamName.toLowerCase() === parsedGame.homeTeamName.toLowerCase() ? homeTeamId : row.teamName.toLowerCase() === parsedGame.awayTeamName.toLowerCase() ? awayTeamId : getOrCreateTeamId(row.teamName);
           const resolved = resolveOrCreatePlayer(row, teamId, knownPlayers);
-          if (resolved.isNew) { newPlayers.push(resolved.player); knownPlayers.push(resolved.player); }
+          const previousPlayer = knownPlayers.find((player) => player.id === resolved.player.id);
+          if (resolved.isNew || (previousPlayer && previousPlayer.position !== resolved.player.position)) newPlayers.push(resolved.player);
+          if (resolved.isNew) knownPlayers.push(resolved.player);
           events.push(...buildSyntheticEvents(row, gameId, teamId, resolved.player.id, Date.now()));
         }
       }

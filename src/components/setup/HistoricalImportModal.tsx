@@ -150,11 +150,11 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
         quarter: "Q4",
         status: "final",
         scheduledAt,
-        venue: "Ayala Alabang Village Main Gym",
+        venue: pg.venue || "Ayala Alabang Village Main Gym",
         homeFouls: 0,
         awayFouls: 0,
-        officials: [],
-        quarterScores: {
+        officials: pg.officials,
+        quarterScores: pg.hasQuarterScores ? pg.quarterScores : {
           home: { Q1: 0, Q2: 0, Q3: 0, Q4: pg.homeScore },
           away: { Q1: 0, Q2: 0, Q3: 0, Q4: pg.awayScore },
         },
@@ -179,10 +179,15 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
           isAway ??
           getOrCreateTeamId(pr.teamName);
 
-        const { player, isNew } = resolveOrCreatePlayer(pr, teamId, allKnownPlayers);
+        const resolved = resolveOrCreatePlayer(pr, teamId, allKnownPlayers);
+        const player = resolved.player;
+        const isNew = resolved.isNew;
 
-        if (isNew) {
+        const previousPlayer = allKnownPlayers.find((knownPlayer) => knownPlayer.id === player.id);
+        if (isNew || (previousPlayer && previousPlayer.position !== player.position)) {
           newPlayersToInsert.push(player);
+        }
+        if (isNew) {
           allKnownPlayers.push(player); // avoid re-creating in subsequent rows
         }
 
