@@ -11,25 +11,27 @@ import { PlayersRankingsView } from "@/components/players/PlayersRankingsView";
 import { ScheduleView } from "@/components/schedule/ScheduleView";
 import { LeagueSetupView } from "@/components/setup/LeagueSetupView";
 import { LoginPage } from "@/components/auth/LoginPage";
+import { ToastNotifier } from "@/components/common/ToastNotifier";
 import { useD2LStore } from "@/store/useD2LStore";
-import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { supabase, isSupabaseConfigured, clearRetiredLeagueCaches } from "@/lib/supabaseClient";
 import { StaffRole, StaffUser } from "@/lib/types";
-
 import { mapTeamFromDb, mapPlayerFromDb, mapGameFromDb, mapStatEventFromDb } from "@/lib/supabaseService";
+
 
 export default function Home() {
   const [mounted, setMounted] = useState(false);
   const [activeTab, setActiveTab] = useState<string>("tracker");
-  const { currentStaff, isAuthenticated, themeMode, loadFromSupabase } = useD2LStore();
+  const { currentStaff, isAuthenticated, themeMode, isDataLoaded, dataLoadError, loadFromSupabase } = useD2LStore();
 
   useEffect(() => {
     setMounted(true);
+    clearRetiredLeagueCaches();
 
     // Initial auth verification against Supabase Auth
     if (isSupabaseConfigured) {
       supabase.auth.getSession().then(({ data: { session }, error }) => {
         if (error || !session?.user) {
-          useD2LStore.setState({ isAuthenticated: false });
+          useD2LStore.setState({ isAuthenticated: false, isDataLoaded: false });
         } else {
           const user = session.user;
           const userEmail = user.email?.toLowerCase() || "";
@@ -50,7 +52,7 @@ export default function Home() {
       // Listen to auth state changes (sign in, sign out, token refresh)
       const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
         if (event === "SIGNED_OUT" || !session) {
-          useD2LStore.setState({ isAuthenticated: false });
+          useD2LStore.setState({ isAuthenticated: false, isDataLoaded: false });
         } else if (event === "SIGNED_IN" && session?.user) {
           const user = session.user;
           const userEmail = user.email?.toLowerCase() || "";
@@ -71,12 +73,18 @@ export default function Home() {
       // Listen for Supabase Realtime changes — merge individual rows instead of
       // calling loadFromSupabase() which can wipe optimistic state if Supabase
       // returns 0 rows in a race-condition window right after an insert.
+      let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+      const refreshFromDatabase = () => {
+        if (refreshTimer) clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => void loadFromSupabase(), 75);
+      };
       const channel = supabase
         .channel("public-db-changes")
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "teams" },
           (payload) => {
+            refreshFromDatabase();
             const { eventType, new: newRow, old: oldRow } = payload;
             useD2LStore.setState((s) => {
               if (eventType === "DELETE") {
@@ -95,6 +103,7 @@ export default function Home() {
           "postgres_changes",
           { event: "*", schema: "public", table: "players" },
           (payload) => {
+            refreshFromDatabase();
             const { eventType, new: newRow, old: oldRow } = payload;
             useD2LStore.setState((s) => {
               if (eventType === "DELETE") {
@@ -113,6 +122,7 @@ export default function Home() {
           "postgres_changes",
           { event: "*", schema: "public", table: "games" },
           (payload) => {
+            refreshFromDatabase();
             const { eventType, new: newRow, old: oldRow } = payload;
             useD2LStore.setState((s) => {
               if (eventType === "DELETE") {
@@ -131,6 +141,7 @@ export default function Home() {
           "postgres_changes",
           { event: "*", schema: "public", table: "stat_events" },
           (payload) => {
+            refreshFromDatabase();
             const { eventType, new: newRow, old: oldRow } = payload;
             useD2LStore.setState((s) => {
               if (eventType === "DELETE") {
@@ -145,10 +156,19 @@ export default function Home() {
             });
           }
         )
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "app_state" },
+          (payload) => {
+            refreshFromDatabase();
+            useD2LStore.setState({ activeGameId: (payload.new as { active_game_id?: string | null }).active_game_id || "" });
+          }
+        )
         .subscribe();
 
       return () => {
         authListener?.subscription.unsubscribe();
+        if (refreshTimer) clearTimeout(refreshTimer);
         supabase.removeChannel(channel);
       };
     } else {
@@ -195,6 +215,16 @@ export default function Home() {
     );
   }
 
+  // Do not render a local snapshot while the initial or a Realtime-triggered
+  // Supabase read is in flight.
+  if (!isDataLoaded) {
+    return (
+      <div className="min-h-screen bg-d2l-dark text-d2l-gold flex items-center justify-center font-athletic font-bold text-xs uppercase tracking-widest">
+        {dataLoadError ? `Unable to load live league data: ${dataLoadError}` : "Loading live league data..."}
+      </div>
+    );
+  }
+
   return (
     <div
       className={`min-h-screen flex flex-col ${
@@ -203,6 +233,9 @@ export default function Home() {
           : "bg-d2l-dark text-gray-100"
       }`}
     >
+      {/* On-Screen Write Error & Toast Notification Banner */}
+      <ToastNotifier />
+
       {/* Top Courtside Bar */}
       <Navbar activeTab={activeTab} setActiveTab={setActiveTab} />
 

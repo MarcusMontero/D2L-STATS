@@ -271,44 +271,62 @@ Top Performers:
         </div>
 
         {/* Quarter By Quarter Score Grid */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-center text-xs">
-            <thead>
-              <tr className="border-b border-d2l-borderDark text-gray-400 uppercase font-athletic">
-                <th className="py-1 text-left">Team</th>
-                <th className="py-1">Q1</th>
-                <th className="py-1">Q2</th>
-                <th className="py-1">Q3</th>
-                <th className="py-1">Q4</th>
-                <th className="py-1 text-d2l-gold font-bold">TOTAL</th>
-              </tr>
-            </thead>
-            <tbody className="font-mono">
-              <tr className="border-b border-d2l-borderDark/40">
-                <td className="py-1.5 text-left font-sans font-bold flex items-center gap-2">
-                  <TeamLogo logo={homeTeam.logo} name={homeTeam.name} size="xs" />
-                  <span>{homeTeam.shortName}</span>
-                </td>
-                <td>{game.quarterScores.home.Q1}</td>
-                <td>{game.quarterScores.home.Q2}</td>
-                <td>{game.quarterScores.home.Q3}</td>
-                <td>{game.quarterScores.home.Q4}</td>
-                <td className="font-black text-d2l-goldLight">{game.homeScore}</td>
-              </tr>
-              <tr>
-                <td className="py-1.5 text-left font-sans font-bold flex items-center gap-2">
-                  <TeamLogo logo={awayTeam.logo} name={awayTeam.name} size="xs" />
-                  <span>{awayTeam.shortName}</span>
-                </td>
-                <td>{game.quarterScores.away.Q1}</td>
-                <td>{game.quarterScores.away.Q2}</td>
-                <td>{game.quarterScores.away.Q3}</td>
-                <td>{game.quarterScores.away.Q4}</td>
-                <td className="font-black text-d2l-goldLight">{game.awayScore}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        {(() => {
+          const ot1Home = game.quarterScores?.home?.OT1 ?? 0;
+          const ot1Away = game.quarterScores?.away?.OT1 ?? 0;
+          const ot2Home = game.quarterScores?.home?.OT2 ?? 0;
+          const ot2Away = game.quarterScores?.away?.OT2 ?? 0;
+
+          const hasOT1 = ot1Home > 0 || ot1Away > 0 || game.quarter === "OT1";
+          const hasOT2 = ot2Home > 0 || ot2Away > 0 || game.quarter === "OT2";
+
+          return (
+            <div className="overflow-x-auto">
+              <table className="w-full text-center text-xs">
+                <thead>
+                  <tr className="border-b border-d2l-borderDark text-gray-400 uppercase font-athletic">
+                    <th className="py-1 text-left">Team</th>
+                    <th className="py-1">Q1</th>
+                    <th className="py-1">Q2</th>
+                    <th className="py-1">Q3</th>
+                    <th className="py-1">Q4</th>
+                    {hasOT1 && <th className="py-1 text-amber-400">OT1</th>}
+                    {hasOT2 && <th className="py-1 text-amber-400">OT2</th>}
+                    <th className="py-1 text-d2l-gold font-bold">TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody className="font-mono">
+                  <tr className="border-b border-d2l-borderDark/40">
+                    <td className="py-1.5 text-left font-sans font-bold flex items-center gap-2">
+                      <TeamLogo logo={homeTeam.logo} name={homeTeam.name} size="xs" />
+                      <span>{homeTeam.shortName}</span>
+                    </td>
+                    <td>{game.quarterScores?.home?.Q1 ?? 0}</td>
+                    <td>{game.quarterScores?.home?.Q2 ?? 0}</td>
+                    <td>{game.quarterScores?.home?.Q3 ?? 0}</td>
+                    <td>{game.quarterScores?.home?.Q4 ?? 0}</td>
+                    {hasOT1 && <td className="text-amber-300 font-bold">{ot1Home}</td>}
+                    {hasOT2 && <td className="text-amber-300 font-bold">{ot2Home}</td>}
+                    <td className="font-black text-d2l-goldLight">{game.homeScore}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-1.5 text-left font-sans font-bold flex items-center gap-2">
+                      <TeamLogo logo={awayTeam.logo} name={awayTeam.name} size="xs" />
+                      <span>{awayTeam.shortName}</span>
+                    </td>
+                    <td>{game.quarterScores?.away?.Q1 ?? 0}</td>
+                    <td>{game.quarterScores?.away?.Q2 ?? 0}</td>
+                    <td>{game.quarterScores?.away?.Q3 ?? 0}</td>
+                    <td>{game.quarterScores?.away?.Q4 ?? 0}</td>
+                    {hasOT1 && <td className="text-amber-300 font-bold">{ot1Away}</td>}
+                    {hasOT2 && <td className="text-amber-300 font-bold">{ot2Away}</td>}
+                    <td className="font-black text-d2l-goldLight">{game.awayScore}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Box Score Tables for Both Teams */}

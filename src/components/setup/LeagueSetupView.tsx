@@ -22,6 +22,8 @@ import {
   Lock,
   Check,
   FileSpreadsheet,
+  Database,
+  RefreshCw,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
 import { PlayerAvatar } from "@/components/common/PlayerAvatar";
@@ -43,6 +45,8 @@ export const LeagueSetupView: React.FC = () => {
     importPlayersFromCsv,
     staffList,
     addStaff,
+    syncAllLocalDataToSupabase,
+    downloadLocalDataBackup,
     currentStaff,
     updateAdminPin,
   } = useD2LStore();
@@ -374,6 +378,24 @@ export const LeagueSetupView: React.FC = () => {
           >
             <FileSpreadsheet className="w-4 h-4" />
             <span>Import Past Games</span>
+          </button>
+
+          <button
+            onClick={() => syncAllLocalDataToSupabase()}
+            className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-d2l-forest to-d2l-dark hover:from-d2l-forestLight border border-emerald-500/50 text-xs font-bold font-athletic text-emerald-300 flex items-center gap-1.5 transition shadow"
+            title="Push all local state (teams, players, games, stats) to Supabase database"
+          >
+            <RefreshCw className="w-4 h-4 text-emerald-400" />
+            <span>Force Sync Supabase</span>
+          </button>
+
+          <button
+            onClick={() => downloadLocalDataBackup()}
+            className="px-3 py-1.5 rounded-lg bg-d2l-cardDark hover:bg-black/60 border border-d2l-borderDark text-xs font-bold text-gray-300 flex items-center gap-1.5 transition"
+            title="Download full JSON backup of all browser state"
+          >
+            <Download className="w-4 h-4 text-d2l-gold" />
+            <span>Backup JSON</span>
           </button>
         </div>
       </div>

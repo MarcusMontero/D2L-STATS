@@ -123,8 +123,6 @@ export function parseScheduleCsv(file: File, leagueId: string, season: string): 
             homeScore: Number(row.home_score) || 0,
             awayScore: Number(row.away_score) || 0,
             quarter: "Q1",
-            timeRemainingSeconds: 600,
-            isClockRunning: false,
             status: (row.status as Game["status"]) || "scheduled",
             scheduledAt: row.scheduled_at || new Date().toISOString(),
             venue: row.venue || "Ayala Alabang Village Main Gym",

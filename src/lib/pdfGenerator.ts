@@ -78,26 +78,44 @@ export function exportBoxScorePDF(
   doc.setFont("helvetica", "bold");
   doc.text("FINAL", 105, 50, { align: "center" });
 
-  // Quarter Mini Table
-  const qHeaders = [["Team", "Q1", "Q2", "Q3", "Q4", "Total"]];
-  const qRows = [
-    [
-      homeTeam.shortName,
-      game.quarterScores.home.Q1.toString(),
-      game.quarterScores.home.Q2.toString(),
-      game.quarterScores.home.Q3.toString(),
-      game.quarterScores.home.Q4.toString(),
-      game.homeScore.toString(),
-    ],
-    [
-      awayTeam.shortName,
-      game.quarterScores.away.Q1.toString(),
-      game.quarterScores.away.Q2.toString(),
-      game.quarterScores.away.Q3.toString(),
-      game.quarterScores.away.Q4.toString(),
-      game.awayScore.toString(),
-    ],
+  // Quarter Mini Table (with dynamic OT1 / OT2 overtime support)
+  const ot1Home = game.quarterScores?.home?.OT1 ?? 0;
+  const ot1Away = game.quarterScores?.away?.OT1 ?? 0;
+  const ot2Home = game.quarterScores?.home?.OT2 ?? 0;
+  const ot2Away = game.quarterScores?.away?.OT2 ?? 0;
+
+  const hasOT1 = ot1Home > 0 || ot1Away > 0 || game.quarter === "OT1";
+  const hasOT2 = ot2Home > 0 || ot2Away > 0 || game.quarter === "OT2";
+
+  const qHeadRow = ["Team", "Q1", "Q2", "Q3", "Q4"];
+  if (hasOT1) qHeadRow.push("OT1");
+  if (hasOT2) qHeadRow.push("OT2");
+  qHeadRow.push("Total");
+
+  const homeQRow = [
+    homeTeam.shortName,
+    (game.quarterScores?.home?.Q1 ?? 0).toString(),
+    (game.quarterScores?.home?.Q2 ?? 0).toString(),
+    (game.quarterScores?.home?.Q3 ?? 0).toString(),
+    (game.quarterScores?.home?.Q4 ?? 0).toString(),
   ];
+  if (hasOT1) homeQRow.push(ot1Home.toString());
+  if (hasOT2) homeQRow.push(ot2Home.toString());
+  homeQRow.push(game.homeScore.toString());
+
+  const awayQRow = [
+    awayTeam.shortName,
+    (game.quarterScores?.away?.Q1 ?? 0).toString(),
+    (game.quarterScores?.away?.Q2 ?? 0).toString(),
+    (game.quarterScores?.away?.Q3 ?? 0).toString(),
+    (game.quarterScores?.away?.Q4 ?? 0).toString(),
+  ];
+  if (hasOT1) awayQRow.push(ot1Away.toString());
+  if (hasOT2) awayQRow.push(ot2Away.toString());
+  awayQRow.push(game.awayScore.toString());
+
+  const qHeaders = [qHeadRow];
+  const qRows = [homeQRow, awayQRow];
 
   autoTable(doc, {
     head: qHeaders,

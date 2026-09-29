@@ -1,5 +1,4 @@
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
 import {
   League,
   Team,
@@ -14,7 +13,7 @@ import {
   PlayerLeaderboardItem,
 } from "../lib/types";
 import { soundFX, triggerHaptic } from "../lib/sound";
-import { broadcastD2LEvent, supabase, isSupabaseConfigured } from "../lib/supabaseClient";
+import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
 import { hashPin } from "../lib/pinHelper";
 import {
   fetchAllLeagueData,
@@ -31,6 +30,7 @@ import {
   dbDeleteStatEvent,
   dbInsertStaff,
   dbUpdateStaffPin,
+  dbSetActiveGameId,
 } from "../lib/supabaseService";
 
 interface D2LState {
@@ -44,6 +44,9 @@ interface D2LState {
   statEvents: StatEvent[];
   undoStack: StatEvent[];
   isDataLoaded: boolean;
+  dataLoadError: string | null;
+  isAuthReady: boolean;
+  setAuthReady: (ready: boolean) => void;
   
   // On court status: teamId -> playerIds currently on floor
   onCourtPlayerIds: Record<string, string[]>;
@@ -63,8 +66,12 @@ interface D2LState {
   isOnline: boolean;
   pendingSyncCount: number;
 
-  // Supabase live sync
+  // Supabase live sync & diagnostics
   loadFromSupabase: () => Promise<void>;
+  toastMessage: { type: "success" | "error" | "warning" | "info"; text: string; details?: string; timestamp: number } | null;
+  setToastMessage: (toast: { type: "success" | "error" | "warning" | "info"; text: string; details?: string } | null) => void;
+  syncAllLocalDataToSupabase: () => Promise<void>;
+  downloadLocalDataBackup: () => void;
 
   // Actions: Leagues & Teams
   setActiveLeague: (leagueId: string) => void;
@@ -85,7 +92,7 @@ interface D2LState {
   ) => Promise<{ success: boolean; error?: string }>;
 
   // Actions: Games & Scores
-  setActiveGame: (gameId: string) => void;
+  setActiveGame: (gameId: string) => Promise<void>;
   addGame: (game: Game) => Promise<{ success: boolean; error?: string }>;
   updateGame: (gameId: string, updates: Partial<Game>) => Promise<{ success: boolean; error?: string }>;
   deleteGame: (gameId: string) => Promise<{ success: boolean; error?: string }>;
@@ -142,16 +149,6 @@ interface D2LState {
   getPlayerLeaderboard: (statKey: "ppg" | "rpg" | "apg" | "bpg" | "spg" | "fgPct") => PlayerLeaderboardItem[];
 }
 
-const DEFAULT_LEAGUES: League[] = [
-  {
-    id: "d2l-s10",
-    name: "District 2 League (D2L)",
-    season: "Season 10 - 2026",
-    location: "Ayala Alabang Village Main Gym, Muntinlupa City",
-    isActive: true,
-  },
-];
-
 const DEFAULT_STAFF: StaffUser = {
   id: "staff-default",
   name: "Courtside Staff",
@@ -161,11 +158,14 @@ const DEFAULT_STAFF: StaffUser = {
   avatar: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
 };
 
+let loadGeneration = 0;
+
 export const useD2LStore = create<D2LState>()(
-  persist(
     (set, get) => ({
-      leagues: DEFAULT_LEAGUES,
-      activeLeagueId: "d2l-s10",
+      // League data is an in-memory view of the last successful Supabase read.
+      // It is deliberately never persisted in the browser.
+      leagues: [],
+      activeLeagueId: "",
       teams: [],
       players: [],
       games: [],
@@ -173,6 +173,9 @@ export const useD2LStore = create<D2LState>()(
       statEvents: [],
       undoStack: [],
       isDataLoaded: false,
+      dataLoadError: null,
+      isAuthReady: false,
+      setAuthReady: (ready) => set({ isAuthReady: ready }),
       onCourtPlayerIds: {},
       staffList: [],
       currentStaff: DEFAULT_STAFF,
@@ -182,59 +185,159 @@ export const useD2LStore = create<D2LState>()(
       themeMode: "courtside-dark",
       isOnline: true,
       pendingSyncCount: 0,
+      toastMessage: null,
+
+      setToastMessage: (toast) => {
+        if (!toast) {
+          set({ toastMessage: null });
+        } else {
+          set({ toastMessage: { ...toast, timestamp: Date.now() } });
+        }
+      },
+
+      syncAllLocalDataToSupabase: async () => {
+        const { teams, players, games, statEvents, staffList } = get();
+        console.log("🚀 Starting Force Sync of all local data to Supabase...");
+        get().setToastMessage({ type: "info", text: "Syncing local data to Supabase..." });
+
+        let syncedTeams = 0;
+        let syncedPlayers = 0;
+        let syncedGames = 0;
+        let syncedEvents = 0;
+        const errors: string[] = [];
+
+        for (const t of teams) {
+          const res = await dbInsertTeam(t);
+          if (res.success) syncedTeams++;
+          else errors.push(`Team "${t.name}": ${res.error}`);
+        }
+
+        for (const p of players) {
+          const res = await dbInsertPlayer(p);
+          if (res.success) syncedPlayers++;
+          else errors.push(`Player "${p.name}": ${res.error}`);
+        }
+
+        for (const g of games) {
+          const res = await dbInsertGame(g);
+          if (res.success) syncedGames++;
+          else errors.push(`Game "${g.id}": ${res.error}`);
+        }
+
+        const BATCH = 50;
+        for (let i = 0; i < statEvents.length; i += BATCH) {
+          const batch = statEvents.slice(i, i + BATCH);
+          for (const e of batch) {
+            const res = await dbInsertStatEvent(e);
+            if (res.success) syncedEvents++;
+            else errors.push(`Event "${e.id}": ${res.error}`);
+          }
+        }
+
+        for (const s of staffList) {
+          await dbInsertStaff(s);
+        }
+
+        if (errors.length > 0) {
+          console.error("❌ Force Sync completed with errors:", errors);
+          get().setToastMessage({
+            type: "warning",
+            text: `Sync Warning: ${errors.length} write error(s) occurred.`,
+            details: `Pushed ${syncedTeams} teams, ${syncedPlayers} players, ${syncedGames} games, ${syncedEvents} stat events. First error: ${errors[0]}`,
+          });
+        } else {
+          console.log(`✅ Force Sync succeeded completely! Teams: ${syncedTeams}, Players: ${syncedPlayers}, Games: ${syncedGames}, Events: ${syncedEvents}`);
+          get().setToastMessage({
+            type: "success",
+            text: `Sync Complete! Pushed ${syncedTeams} teams, ${syncedPlayers} players, ${syncedGames} games, ${syncedEvents} stat events to Supabase.`,
+          });
+        }
+      },
+
+      downloadLocalDataBackup: () => {
+        const { leagues, teams, players, games, statEvents, staffList } = get();
+        const backupObj = {
+          exportedAt: new Date().toISOString(),
+          version: "1.0",
+          leagues,
+          teams,
+          players,
+          games,
+          statEvents,
+          staffList,
+        };
+        const jsonStr = JSON.stringify(backupObj, null, 2);
+        const blob = new Blob([jsonStr], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `d2l_local_data_backup_${new Date().toISOString().slice(0, 10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+        get().setToastMessage({
+          type: "success",
+          text: "Local JSON backup downloaded successfully!",
+        });
+      },
 
       loadFromSupabase: async () => {
+        const gen = ++loadGeneration;
+        set({ isDataLoaded: false, dataLoadError: null });
         try {
           const dbData = await fetchAllLeagueData();
-          
-          set((s) => {
-            // Leagues: always use Supabase data if available, otherwise keep existing or use defaults
-            const leagues = dbData.leagues.length > 0 ? dbData.leagues : s.leagues.length > 0 ? s.leagues : DEFAULT_LEAGUES;
+          if (gen !== loadGeneration) return;
 
-            // For teams/players/games/statEvents: ONLY replace if Supabase returned rows.
-            // If Supabase returns 0 rows (e.g. RLS block, network issue, or race condition
-            // before a just-inserted row propagates), keep the current optimistic state.
-            // This prevents inserts from being visually wiped out.
-            const teams = dbData.teams.length > 0 ? dbData.teams : s.teams;
-            const players = dbData.players.length > 0 ? dbData.players : s.players;
-            const games = dbData.games.length > 0 ? dbData.games : s.games;
-            const statEvents = dbData.statEvents.length > 0 ? dbData.statEvents : s.statEvents;
+          const leagues = dbData.leagues;
+          const teams = dbData.teams;
+          const players = dbData.players;
+          const games = dbData.games;
+          const statEvents = dbData.statEvents;
+          const staffList = dbData.staffList;
 
-            // For staffList, only update when Supabase returned data
-            const staffList = dbData.staffList.length > 0 ? dbData.staffList : s.staffList;
-
-            // Preserve active game or pick first available game
-            let activeGameId = s.activeGameId;
-            if ((!activeGameId || !games.some((g) => g.id === activeGameId)) && games.length > 0) {
-              const liveGame = games.find((g) => g.status === "live");
-              activeGameId = liveGame ? liveGame.id : games[0].id;
+          let activeGameId = dbData.activeGameId;
+          if (activeGameId && !games.some((g) => g.id === activeGameId)) {
+            activeGameId = "";
+          }
+          const onCourt: Record<string, string[]> = {};
+          teams.forEach((t) => {
+            const teamStarters = players
+              .filter((p) => p.teamId === t.id && p.isStarter)
+              .slice(0, 5)
+              .map((p) => p.id);
+            if (teamStarters.length > 0) {
+              onCourt[t.id] = teamStarters;
             }
-
-            // Populate onCourt starters map if not already set
-            const onCourt = { ...s.onCourtPlayerIds };
-            teams.forEach((t) => {
-              if (!onCourt[t.id] || onCourt[t.id].length === 0) {
-                const teamStarters = players.filter((p) => p.teamId === t.id && p.isStarter).slice(0, 5).map((p) => p.id);
-                if (teamStarters.length > 0) {
-                  onCourt[t.id] = teamStarters;
-                }
-              }
-            });
-
-            return {
-              leagues,
-              teams,
-              players,
-              games,
-              statEvents,
-              staffList,
-              activeGameId,
-              onCourtPlayerIds: onCourt,
-              isDataLoaded: true,
-            };
           });
-        } catch (err) {
+
+          set({
+            leagues,
+            teams,
+            players,
+            games,
+            statEvents,
+            staffList,
+            activeGameId,
+            onCourtPlayerIds: onCourt,
+            isDataLoaded: true,
+            dataLoadError: null,
+          });
+        } catch (err: any) {
           console.error("Failed to load data from Supabase:", err);
+          if (gen !== loadGeneration) return;
+          set({
+            teams: [],
+            players: [],
+            games: [],
+            statEvents: [],
+            activeGameId: "",
+            isDataLoaded: false,
+            dataLoadError: err?.message || "Check network connection or RLS policies.",
+          });
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to load data from Supabase",
+            details: err?.message || "Check network connection or RLS policies.",
+          });
         }
       },
 
@@ -247,6 +350,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbInsertTeam(team);
         if (!res.success) {
           console.error("Failed to insert team to Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: `Failed to save Team "${team.name}" to Supabase`,
+            details: res.error || "Write rejected by Supabase database.",
+          });
         }
         return res;
       },
@@ -258,6 +366,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbUpdateTeam(id, updates);
         if (!res.success) {
           console.error("Failed to update team in Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to update Team in Supabase",
+            details: res.error || "Write rejected by Supabase database.",
+          });
         }
         return res;
       },
@@ -266,6 +379,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbDeleteTeam(id);
         if (!res.success) {
           console.error("Failed to delete team from Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to delete Team from Supabase",
+            details: res.error || "Delete operation failed in database.",
+          });
           return res;
         }
 
@@ -291,6 +409,7 @@ export const useD2LStore = create<D2LState>()(
             activeGameId: nextActiveGameId,
           };
         });
+        await dbSetActiveGameId(get().activeGameId);
 
         return res;
       },
@@ -300,6 +419,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbInsertPlayer(player);
         if (!res.success) {
           console.error("Failed to insert player to Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: `Failed to save Player "${player.name}" to Supabase`,
+            details: res.error || "Write rejected by Supabase database.",
+          });
         }
         return res;
       },
@@ -311,6 +435,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbUpdatePlayer(id, updates);
         if (!res.success) {
           console.error("Failed to update player in Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to update Player in Supabase",
+            details: res.error || "Write rejected by Supabase database.",
+          });
         }
         return res;
       },
@@ -319,6 +448,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbDeletePlayer(id);
         if (!res.success) {
           console.error("Failed to delete player from Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to delete Player from Supabase",
+            details: res.error || "Delete operation failed in database.",
+          });
           return res;
         }
 
@@ -339,7 +473,14 @@ export const useD2LStore = create<D2LState>()(
           return { players: [...updated, ...newPlayers] };
         });
         for (const p of newPlayers) {
-          await dbInsertPlayer(p);
+          const res = await dbInsertPlayer(p);
+          if (!res.success) {
+            get().setToastMessage({
+              type: "error",
+              text: `Failed to save player "${p.name}" during CSV import`,
+              details: res.error,
+            });
+          }
         }
       },
 
@@ -387,11 +528,28 @@ export const useD2LStore = create<D2LState>()(
           return { success: true };
         } catch (err: any) {
           console.error("❌ importHistoricalGames failed:", err);
+          get().setToastMessage({
+            type: "error",
+            text: "Historical Game Import Failed",
+            details: err?.message || "Import operation failed.",
+          });
           return { success: false, error: err?.message || "Import failed" };
         }
       },
 
-      setActiveGame: (gameId) => set({ activeGameId: gameId }),
+      setActiveGame: async (gameId) => {
+        set({ activeGameId: gameId });
+        const res = await dbSetActiveGameId(gameId);
+        if (!res.success) {
+          get().setToastMessage({
+            type: "error",
+            text: "Could not sync the active game to Supabase",
+            details:
+              res.error ||
+              "Run the latest supabase/schema.sql so the app_state table exists. Other devices will not see this selection until that succeeds.",
+          });
+        }
+      },
 
       addGame: async (game) => {
         set((s) => ({
@@ -401,6 +559,14 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbInsertGame(game);
         if (!res.success) {
           console.error("Failed to insert game to Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to save Game to Supabase",
+            details: res.error || "Write rejected by Supabase database.",
+          });
+        }
+        if (!get().activeGameId || get().activeGameId === game.id) {
+          await dbSetActiveGameId(game.id);
         }
         return res;
       },
@@ -412,6 +578,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbUpdateGame(gameId, updates);
         if (!res.success) {
           console.error("Failed to update game in Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to update Game in Supabase",
+            details: res.error || "Write rejected by Supabase database.",
+          });
         }
         return res;
       },
@@ -420,6 +591,11 @@ export const useD2LStore = create<D2LState>()(
         const res = await dbDeleteGame(gameId);
         if (!res.success) {
           console.error("Failed to delete game from Supabase:", res.error);
+          get().setToastMessage({
+            type: "error",
+            text: "Failed to delete Game from Supabase",
+            details: res.error || "Delete operation failed in database.",
+          });
           return res;
         }
 
@@ -433,6 +609,7 @@ export const useD2LStore = create<D2LState>()(
             activeGameId: nextActiveGameId,
           };
         });
+        await dbSetActiveGameId(get().activeGameId);
 
         return res;
       },
@@ -632,16 +809,6 @@ export const useD2LStore = create<D2LState>()(
         dbInsertStatEvent(newEvent);
         dbUpdateGame(game.id, updatedGame);
 
-        // Broadcast to peer tabs
-        broadcastD2LEvent({
-          type: "STAT_EVENT_ADDED",
-          gameId: game.id,
-          payload: { event: newEvent, game: updatedGame },
-          senderStaffId: state.currentStaff.id,
-          senderStaffName: state.currentStaff.name,
-          timestamp: Date.now(),
-        });
-
         // Also add assist event if assistPlayerId was provided
         if (options?.assistPlayerId) {
           const assistEvt: StatEvent = {
@@ -716,15 +883,6 @@ export const useD2LStore = create<D2LState>()(
 
         soundFX.playClick();
         triggerHaptic("medium");
-
-        broadcastD2LEvent({
-          type: "STAT_EVENT_DELETED",
-          gameId: game.id,
-          payload: { eventId: lastEvent.id, game: updatedGame },
-          senderStaffId: state.currentStaff.id,
-          senderStaffName: state.currentStaff.name,
-          timestamp: Date.now(),
-        });
 
         return true;
       },
@@ -833,10 +991,13 @@ export const useD2LStore = create<D2LState>()(
         set({
           isAuthenticated: false,
           currentStaff: DEFAULT_STAFF,
+          teams: [],
+          players: [],
+          games: [],
+          statEvents: [],
+          activeGameId: "",
+          isDataLoaded: false,
         });
-        if (typeof window !== "undefined") {
-          localStorage.removeItem("d2l_league_storage_v1");
-        }
       },
 
       addStaff: (staff) => {
@@ -863,17 +1024,14 @@ export const useD2LStore = create<D2LState>()(
       // SELECTORS
       getActiveGame: () => {
         const { games, activeGameId } = get();
-        if (activeGameId) {
-          const found = games.find((g) => g.id === activeGameId);
-          if (found) return found;
-        }
-        return games[0];
+        if (!activeGameId) return undefined;
+        return games.find((g) => g.id === activeGameId);
       },
 
       getGameTeams: (gameId) => {
         const { games, teams, activeGameId } = get();
         const targetGameId = gameId || activeGameId;
-        const game = games.find((g) => g.id === targetGameId) || games[0];
+        const game = games.find((g) => g.id === targetGameId);
         if (!game) return {};
         return {
           homeTeam: teams.find((t) => t.id === game.homeTeamId),
@@ -884,7 +1042,7 @@ export const useD2LStore = create<D2LState>()(
       getGamePlayers: (gameId) => {
         const { games, players, activeGameId } = get();
         const targetGameId = gameId || activeGameId;
-        const game = games.find((g) => g.id === targetGameId) || games[0];
+        const game = games.find((g) => g.id === targetGameId);
         if (!game) return { homePlayers: [], awayPlayers: [] };
         return {
           homePlayers: players.filter((p) => p.teamId === game.homeTeamId),
@@ -901,7 +1059,7 @@ export const useD2LStore = create<D2LState>()(
       calculateBoxScore: (gameId) => {
         const state = get();
         const targetGameId = gameId || state.activeGameId;
-        const game = state.games.find((g) => g.id === targetGameId) || state.games[0];
+        const game = state.games.find((g) => g.id === targetGameId);
         if (!game) {
           const emptyTotal: PlayerBoxStat = {
             playerId: "total",
@@ -1232,26 +1390,5 @@ export const useD2LStore = create<D2LState>()(
 
         return items;
       },
-    }),
-    {
-      name: "d2l_league_storage_v1",
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        leagues: state.leagues,
-        activeLeagueId: state.activeLeagueId,
-        teams: state.teams,
-        players: state.players,
-        games: state.games,
-        activeGameId: state.activeGameId,
-        statEvents: state.statEvents,
-        onCourtPlayerIds: state.onCourtPlayerIds,
-        staffList: state.staffList,
-        currentStaff: state.currentStaff,
-        isAuthenticated: state.isAuthenticated,
-        soundEnabled: state.soundEnabled,
-        hapticsEnabled: state.hapticsEnabled,
-        themeMode: state.themeMode,
-      }),
-    }
-  )
+    })
 );

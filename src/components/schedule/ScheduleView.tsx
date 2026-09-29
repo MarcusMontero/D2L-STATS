@@ -103,8 +103,6 @@ export const ScheduleView: React.FC<ScheduleViewProps> = ({ onNavigateToBoxScore
       homeScore: 0,
       awayScore: 0,
       quarter: "Q1",
-      timeRemainingSeconds: 600,
-      isClockRunning: false,
       status: "scheduled",
       scheduledAt,
       venue: newVenue,

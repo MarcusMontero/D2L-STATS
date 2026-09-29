@@ -34,7 +34,7 @@ export const LiveScoreboard: React.FC = () => {
     );
   }
 
-  const quarters: Quarter[] = ["Q1", "Q2", "Q3", "Q4", "OT1"];
+  const quarters: Quarter[] = ["Q1", "Q2", "Q3", "Q4", "OT1", "OT2"];
   const isFinal = game.status === "final";
 
   // System Admin or active logged-in staff can finalize

@@ -40,10 +40,6 @@ create table if not exists players (
   first_name text,
   last_name text,
   position text not null,
-  height text default '6''0"',
-  weight text default '180 lbs',
-  age integer default 25,
-  hometown text default 'Ayala Alabang',
   photo_url text, -- Storage URL for face photo
   is_starter boolean default false,
   is_active boolean default true,
@@ -60,9 +56,7 @@ create table if not exists games (
   home_score integer default 0,
   away_score integer default 0,
   quarter text default 'Q1',
-  time_remaining_seconds integer default 600,
-  is_clock_running boolean default false,
-  status text default 'scheduled', -- 'scheduled', 'live', 'halftime', 'final'
+  status text default 'scheduled', -- 'scheduled', 'live', 'halftime', 'final', 'overtime'
   scheduled_at timestamp with time zone not null,
   venue text default 'Ayala Alabang Village Main Gym',
   home_fouls integer default 0,
@@ -100,14 +94,52 @@ create table if not exists staff_users (
   name text not null,
   email text unique not null,
   role text not null check (role in ('admin', 'staff')),
-  pin text default '1234',
+  pin_hash text,
   avatar_url text,
   created_at timestamp with time zone default timezone('utc'::text, now())
 );
 
--- Enable Supabase Realtime on stat_events and games
-alter publication supabase_realtime add table stat_events;
-alter publication supabase_realtime add table games;
+-- Shared active-game pointer so every device tracks the same matchup
+alter table leagues add column if not exists active_game_id text;
+
+create table if not exists app_state (
+  id text primary key,
+  active_game_id text,
+  updated_at timestamp with time zone default timezone('utc'::text, now())
+);
+
+insert into app_state (id, active_game_id)
+values ('singleton', null)
+on conflict (id) do nothing;
+
+-- Enable Supabase Realtime on all shared league tables
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table stat_events;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table games;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table teams;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table players;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table leagues;
+  exception when duplicate_object then null;
+  end;
+  begin
+    alter publication supabase_realtime add table app_state;
+  exception when duplicate_object then null;
+  end;
+end $$;
 
 -- Row Level Security (RLS) policies
 alter table leagues enable row level security;
@@ -116,6 +148,7 @@ alter table players enable row level security;
 alter table games enable row level security;
 alter table stat_events enable row level security;
 alter table staff_users enable row level security;
+alter table app_state enable row level security;
 
 -- Allow full read / write / delete access for authenticated users & service role
 drop policy if exists "Allow public read on all tables" on leagues;
@@ -137,3 +170,5 @@ create policy "players_full_access" on players for all using (true) with check (
 create policy "games_full_access" on games for all using (true) with check (true);
 create policy "stat_events_full_access" on stat_events for all using (true) with check (true);
 create policy "staff_users_full_access" on staff_users for all using (true) with check (true);
+drop policy if exists "app_state_full_access" on app_state;
+create policy "app_state_full_access" on app_state for all using (true) with check (true);

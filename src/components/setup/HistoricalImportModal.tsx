@@ -133,8 +133,6 @@ export const HistoricalImportModal: React.FC<HistoricalImportModalProps> = ({
         homeScore: pg.homeScore,
         awayScore: pg.awayScore,
         quarter: "Q4",
-        timeRemainingSeconds: 0,
-        isClockRunning: false,
         status: "final",
         scheduledAt,
         venue: "Ayala Alabang Village Main Gym",

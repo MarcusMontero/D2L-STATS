@@ -30,6 +30,8 @@ export interface League {
   season: string;
   location: string;
   isActive: boolean;
+  /** Shared across devices via Supabase — which game the tracker is on. */
+  activeGameId?: string;
 }
 
 export interface Team {
@@ -69,8 +71,6 @@ export interface Game {
   homeScore: number;
   awayScore: number;
   quarter: Quarter;
-  timeRemainingSeconds: number; // e.g., 600 for 10:00
-  isClockRunning: boolean;
   status: GameStatus;
   scheduledAt: string; // ISO date string
   venue: string; // e.g., "Ayala Alabang Village Main Court"
@@ -78,8 +78,8 @@ export interface Game {
   awayFouls: number;
   officials: string[];
   quarterScores: {
-    home: { Q1: number; Q2: number; Q3: number; Q4: number; OT?: number };
-    away: { Q1: number; Q2: number; Q3: number; Q4: number; OT?: number };
+    home: { Q1: number; Q2: number; Q3: number; Q4: number; OT1?: number; OT2?: number; [key: string]: number | undefined };
+    away: { Q1: number; Q2: number; Q3: number; Q4: number; OT1?: number; OT2?: number; [key: string]: number | undefined };
   };
   /** True for games backfilled via CSV historical import (no live play-by-play). */
   isHistoricalImport?: boolean;

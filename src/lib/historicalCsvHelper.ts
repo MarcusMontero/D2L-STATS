@@ -294,11 +294,11 @@ export function buildSyntheticEvents(
       gameId,
       teamId,
       playerId,
-      quarter: "Q1",           // historical — no exact quarter info
-      gameClock: "HIST",       // sentinel that the GameLog can detect
+      quarter: "Q1",           // historical — no exact quarter info (satisfies NOT NULL)
+      gameClock: "N/A",        // sentinel placeholder (satisfies NOT NULL)
       statType,
       points,
-      timestamp: baseTimestamp + seq,
+      timestamp: (baseTimestamp || Date.now()) + seq,
       synced: true,
       notes: "historical_import",
     });

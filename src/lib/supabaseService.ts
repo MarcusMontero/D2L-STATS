@@ -12,6 +12,7 @@ export function mapLeagueFromDb(row: any): League {
     season: row.season || "",
     location: row.location || "Ayala Alabang Village",
     isActive: row.is_active ?? true,
+    activeGameId: row.active_game_id || undefined,
   };
 }
 
@@ -22,6 +23,7 @@ export function mapLeagueToDb(l: League): any {
     season: l.season,
     location: l.location,
     is_active: l.isActive,
+    active_game_id: l.activeGameId || null,
   };
 }
 
@@ -104,8 +106,6 @@ export function mapGameFromDb(row: any): Game {
     homeScore: row.home_score ?? 0,
     awayScore: row.away_score ?? 0,
     quarter: row.quarter || "Q1",
-    timeRemainingSeconds: row.time_remaining_seconds ?? 600,
-    isClockRunning: row.is_clock_running ?? false,
     status: row.status || "scheduled",
     scheduledAt: row.scheduled_at || new Date().toISOString(),
     venue: row.venue || "Ayala Alabang Village Main Gym",
@@ -127,8 +127,6 @@ export function mapGameToDb(g: Game): any {
     home_score: g.homeScore,
     away_score: g.awayScore,
     quarter: g.quarter,
-    time_remaining_seconds: g.timeRemainingSeconds,
-    is_clock_running: g.isClockRunning,
     status: g.status,
     scheduled_at: g.scheduledAt,
     venue: g.venue,
@@ -146,8 +144,8 @@ export function mapStatEventFromDb(row: any): StatEvent {
     gameId: row.game_id,
     teamId: row.team_id,
     playerId: row.player_id,
-    quarter: row.quarter,
-    gameClock: row.game_clock || "-",
+    quarter: row.quarter || "Q1",
+    gameClock: row.game_clock || "N/A",
     statType: row.stat_type,
     points: row.points ?? 0,
     assistPlayerId: row.assist_player_id || undefined,
@@ -167,15 +165,15 @@ export function mapStatEventToDb(e: StatEvent): any {
     game_id: e.gameId,
     team_id: e.teamId || null,
     player_id: e.playerId || null,
-    quarter: e.quarter,
-    game_clock: e.gameClock || "-",
+    quarter: e.quarter || "Q1",
+    game_clock: e.gameClock || "N/A",
     stat_type: e.statType,
     points: e.points ?? 0,
     assist_player_id: e.assistPlayerId || null,
     block_player_id: e.blockPlayerId || null,
     foul_on_player_id: e.foulOnPlayerId || null,
     notes: e.notes || null,
-    timestamp: e.timestamp,
+    timestamp: e.timestamp || Date.now(),
     staff_name: e.staffName || null,
     staff_role: e.staffRole || "staff",
     synced: e.synced ?? true,
@@ -188,7 +186,7 @@ export function mapStaffUserFromDb(row: any): StaffUser {
     name: row.name || "",
     email: row.email || "",
     role: (row.role as StaffRole) || "staff",
-    pin: row.pin || "2026",
+    pin: row.pin_hash || row.pin || "",
     avatar: row.avatar_url || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
   };
 }
@@ -199,7 +197,7 @@ export function mapStaffUserToDb(s: StaffUser): any {
     name: s.name,
     email: s.email,
     role: s.role,
-    pin: s.pin,
+    pin_hash: s.pin,
     avatar_url: s.avatar,
   };
 }
@@ -208,6 +206,56 @@ export function mapStaffUserToDb(s: StaffUser): any {
 // SUPABASE READ QUERIES
 // ==========================================
 
+const PAGE_SIZE = 1000;
+
+async function fetchAllRows(table: string): Promise<{ rows: any[]; error?: string }> {
+  const rows: any[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await supabase.from(table).select("*").range(from, from + PAGE_SIZE - 1);
+    if (error) {
+      return { rows, error: error.message };
+    }
+    const batch = data || [];
+    rows.push(...batch);
+    if (batch.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return { rows };
+}
+
+export async function dbGetActiveGameId(): Promise<string> {
+  if (!isSupabaseConfigured) return "";
+  const { data, error } = await supabase
+    .from("app_state")
+    .select("active_game_id")
+    .eq("id", "singleton")
+    .maybeSingle();
+  if (error) throw new Error(`Supabase app_state fetch failed: ${error.message}`);
+  return data?.active_game_id ? String(data.active_game_id) : "";
+}
+
+export async function dbSetActiveGameId(gameId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { success: true };
+  const payload = {
+    id: "singleton",
+    active_game_id: gameId || null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from("app_state").upsert(payload);
+  if (error) {
+    const { error: leagueErr } = await supabase
+      .from("leagues")
+      .update({ active_game_id: gameId || null })
+      .eq("is_active", true);
+    if (leagueErr) {
+      console.error("❌ dbSetActiveGameId error:", error.message, leagueErr.message);
+      return { success: false, error: error.message };
+    }
+  }
+  return { success: true };
+}
+
 export async function fetchAllLeagueData(): Promise<{
   leagues: League[];
   teams: Team[];
@@ -215,72 +263,54 @@ export async function fetchAllLeagueData(): Promise<{
   games: Game[];
   statEvents: StatEvent[];
   staffList: StaffUser[];
+  activeGameId: string;
 }> {
   if (!isSupabaseConfigured) {
-    return {
-      leagues: [],
-      teams: [],
-      players: [],
-      games: [],
-      statEvents: [],
-      staffList: [],
-    };
+    throw new Error("Supabase is not configured; league data cannot be loaded.");
   }
 
   try {
-    const [
-      { data: leaguesData, error: leaguesErr },
-      { data: teamsData, error: teamsErr },
-      { data: playersData, error: playersErr },
-      { data: gamesData, error: gamesErr },
-      { data: statEventsData, error: statEventsErr },
-      { data: staffData, error: staffErr },
-    ] = await Promise.all([
-      supabase.from("leagues").select("*"),
-      supabase.from("teams").select("*"),
-      supabase.from("players").select("*"),
-      supabase.from("games").select("*"),
-      supabase.from("stat_events").select("*"),
-      supabase.from("staff_users").select("*"),
+    const [leaguesRes, teamsRes, playersRes, gamesRes, eventsRes, staffRes, activeGameId] = await Promise.all([
+      fetchAllRows("leagues"),
+      fetchAllRows("teams"),
+      fetchAllRows("players"),
+      fetchAllRows("games"),
+      fetchAllRows("stat_events"),
+      fetchAllRows("staff_users"),
+      dbGetActiveGameId(),
     ]);
 
-    if (leaguesErr) console.warn("Supabase leagues fetch:", leaguesErr.message);
-    if (teamsErr) console.warn("Supabase teams fetch:", teamsErr.message);
-    if (playersErr) console.warn("Supabase players fetch:", playersErr.message);
-    if (gamesErr) console.warn("Supabase games fetch:", gamesErr.message);
-    if (statEventsErr) console.warn("Supabase statEvents fetch:", statEventsErr.message);
-    if (staffErr) console.warn("Supabase staff fetch:", staffErr.message);
+    const failures = [
+      ["leagues", leaguesRes.error], ["teams", teamsRes.error], ["players", playersRes.error],
+      ["games", gamesRes.error], ["stat_events", eventsRes.error], ["staff_users", staffRes.error],
+    ].filter(([, error]) => error) as [string, string][];
+    if (failures.length) {
+      throw new Error(`Supabase fetch failed (${failures.map(([table, error]) => `${table}: ${error}`).join("; ")})`);
+    }
 
-    const leagues = (leaguesData || []).map(mapLeagueFromDb);
-    const teams = (teamsData || []).map(mapTeamFromDb);
-    const players = (playersData || []).map(mapPlayerFromDb);
-    const games = (gamesData || []).map(mapGameFromDb);
-    const statEvents = (statEventsData || []).map(mapStatEventFromDb);
-    const staffList = (staffData || []).map(mapStaffUserFromDb);
+    const games = (gamesRes.rows || []).map(mapGameFromDb).sort((a, b) => {
+      return new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime();
+    });
 
     return {
-      leagues,
-      teams,
-      players,
+      leagues: (leaguesRes.rows || []).map(mapLeagueFromDb),
+      teams: (teamsRes.rows || []).map(mapTeamFromDb),
+      players: (playersRes.rows || []).map(mapPlayerFromDb),
       games,
-      statEvents,
-      staffList,
+      statEvents: (eventsRes.rows || []).map(mapStatEventFromDb),
+      staffList: (staffRes.rows || []).map(mapStaffUserFromDb),
+      activeGameId,
     };
   } catch (err) {
     console.error("Failed to fetch all data from Supabase:", err);
-    return {
-      leagues: [],
-      teams: [],
-      players: [],
-      games: [],
-      statEvents: [],
-      staffList: [],
-    };
+    // A failed read must never be mistaken for an empty league. Callers keep the
+    // loading/error path active instead of rendering a false zero-stat snapshot.
+    throw err;
   }
 }
 
 // ==========================================
-// SUPABASE WRITE QUERIES (with full error logging)
+// SUPABASE WRITE QUERIES (with explicit success/failure logging)
 // ==========================================
 
 export async function dbInsertTeam(team: Team): Promise<{ success: boolean; error?: string }> {
@@ -288,9 +318,10 @@ export async function dbInsertTeam(team: Team): Promise<{ success: boolean; erro
   const row = mapTeamToDb(team);
   const { error } = await supabase.from("teams").upsert(row);
   if (error) {
-    console.error("❌ Supabase dbInsertTeam error:", error);
+    console.error("❌ Supabase dbInsertTeam error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbInsertTeam succeeded for team "${team.name}" (${team.id})`);
   return { success: true };
 }
 
@@ -310,9 +341,10 @@ export async function dbUpdateTeam(id: string, updates: Partial<Team>): Promise<
 
   const { error } = await supabase.from("teams").update(dbUpdates).eq("id", id);
   if (error) {
-    console.error("❌ Supabase dbUpdateTeam error:", error);
+    console.error("❌ Supabase dbUpdateTeam error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbUpdateTeam succeeded for team ${id}`);
   return { success: true };
 }
 
@@ -352,7 +384,7 @@ export async function dbDeleteTeam(id: string): Promise<{ success: boolean; erro
     // 5. Delete the team itself
     const { error } = await supabase.from("teams").delete().eq("id", id);
     if (error) {
-      console.error("❌ Supabase dbDeleteTeam error:", error);
+      console.error("❌ Supabase dbDeleteTeam error:", error.message, error);
       return { success: false, error: error.message };
     }
 
@@ -369,9 +401,10 @@ export async function dbInsertPlayer(player: Player): Promise<{ success: boolean
   const row = mapPlayerToDb(player);
   const { error } = await supabase.from("players").upsert(row);
   if (error) {
-    console.error("❌ Supabase dbInsertPlayer error:", error);
+    console.error("❌ Supabase dbInsertPlayer error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbInsertPlayer succeeded for player "${player.name}" (${player.id})`);
   return { success: true };
 }
 
@@ -392,9 +425,10 @@ export async function dbUpdatePlayer(id: string, updates: Partial<Player>): Prom
 
   const { error } = await supabase.from("players").update(dbUpdates).eq("id", id);
   if (error) {
-    console.error("❌ Supabase dbUpdatePlayer error:", error);
+    console.error("❌ Supabase dbUpdatePlayer error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbUpdatePlayer succeeded for player ${id}`);
   return { success: true };
 }
 
@@ -410,7 +444,7 @@ export async function dbDeletePlayer(id: string): Promise<{ success: boolean; er
     // 2. Delete the player row
     const { error } = await supabase.from("players").delete().eq("id", id);
     if (error) {
-      console.error("❌ Supabase dbDeletePlayer error:", error);
+      console.error("❌ Supabase dbDeletePlayer error:", error.message, error);
       return { success: false, error: error.message };
     }
 
@@ -427,9 +461,10 @@ export async function dbInsertGame(game: Game): Promise<{ success: boolean; erro
   const row = mapGameToDb(game);
   const { error } = await supabase.from("games").upsert(row);
   if (error) {
-    console.error("❌ Supabase dbInsertGame error:", error);
+    console.error("❌ Supabase dbInsertGame error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbInsertGame succeeded for game ${game.id}`);
   return { success: true };
 }
 
@@ -441,8 +476,6 @@ export async function dbUpdateGame(id: string, updates: Partial<Game>): Promise<
   if (updates.homeScore !== undefined) dbUpdates.home_score = updates.homeScore;
   if (updates.awayScore !== undefined) dbUpdates.away_score = updates.awayScore;
   if (updates.quarter !== undefined) dbUpdates.quarter = updates.quarter;
-  if (updates.timeRemainingSeconds !== undefined) dbUpdates.time_remaining_seconds = updates.timeRemainingSeconds;
-  if (updates.isClockRunning !== undefined) dbUpdates.is_clock_running = updates.isClockRunning;
   if (updates.status !== undefined) dbUpdates.status = updates.status;
   if (updates.scheduledAt !== undefined) dbUpdates.scheduled_at = updates.scheduledAt;
   if (updates.venue !== undefined) dbUpdates.venue = updates.venue;
@@ -452,9 +485,10 @@ export async function dbUpdateGame(id: string, updates: Partial<Game>): Promise<
 
   const { error } = await supabase.from("games").update(dbUpdates).eq("id", id);
   if (error) {
-    console.error("❌ Supabase dbUpdateGame error:", error);
+    console.error("❌ Supabase dbUpdateGame error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbUpdateGame succeeded for game ${id}`);
   return { success: true };
 }
 
@@ -467,7 +501,7 @@ export async function dbDeleteGame(id: string): Promise<{ success: boolean; erro
     // 2. Delete the game
     const { error } = await supabase.from("games").delete().eq("id", id);
     if (error) {
-      console.error("❌ Supabase dbDeleteGame error:", error);
+      console.error("❌ Supabase dbDeleteGame error:", error.message, error);
       return { success: false, error: error.message };
     }
 
@@ -484,9 +518,10 @@ export async function dbInsertStatEvent(event: StatEvent): Promise<{ success: bo
   const row = mapStatEventToDb(event);
   const { error } = await supabase.from("stat_events").upsert(row);
   if (error) {
-    console.error("❌ Supabase dbInsertStatEvent error:", error);
+    console.error("❌ Supabase dbInsertStatEvent error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbInsertStatEvent succeeded for event ${event.id} (${event.statType})`);
   return { success: true };
 }
 
@@ -494,9 +529,10 @@ export async function dbDeleteStatEvent(id: string): Promise<{ success: boolean;
   if (!isSupabaseConfigured) return { success: true };
   const { error } = await supabase.from("stat_events").delete().eq("id", id);
   if (error) {
-    console.error("❌ Supabase dbDeleteStatEvent error:", error);
+    console.error("❌ Supabase dbDeleteStatEvent error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbDeleteStatEvent succeeded for event ${id}`);
   return { success: true };
 }
 
@@ -505,18 +541,20 @@ export async function dbInsertStaff(staff: StaffUser): Promise<{ success: boolea
   const row = mapStaffUserToDb(staff);
   const { error } = await supabase.from("staff_users").upsert(row);
   if (error) {
-    console.warn("Supabase dbInsertStaff note:", error.message);
+    console.error("❌ Supabase dbInsertStaff error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbInsertStaff succeeded for staff ${staff.id}`);
   return { success: true };
 }
 
 export async function dbUpdateStaffPin(staffId: string, pinHash: string): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured) return { success: true };
-  const { error } = await supabase.from("staff_users").update({ pin: pinHash }).eq("id", staffId);
+  const { error } = await supabase.from("staff_users").update({ pin_hash: pinHash }).eq("id", staffId);
   if (error) {
-    console.warn("Supabase dbUpdateStaffPin note:", error.message);
+    console.error("❌ Supabase dbUpdateStaffPin error:", error.message, error);
     return { success: false, error: error.message };
   }
+  console.log(`✅ Supabase dbUpdateStaffPin succeeded for staff ${staffId}`);
   return { success: true };
 }
