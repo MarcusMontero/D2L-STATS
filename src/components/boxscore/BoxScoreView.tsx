@@ -3,24 +3,30 @@
 import React, { useState } from "react";
 import { useD2LStore } from "@/store/useD2LStore";
 import { exportBoxScorePDF } from "@/lib/pdfGenerator";
-import { PlayerBoxStat } from "@/lib/types";
+import { CorrectionStats, PlayerBoxStat } from "@/lib/types";
+import { ConfirmModal } from "@/components/common/ConfirmModal";
 import {
   Download,
   Share2,
   Calendar,
   MapPin,
   Check,
+  Pencil,
 } from "lucide-react";
 import { TeamLogo } from "@/components/common/TeamLogo";
 
 export const BoxScoreView: React.FC = () => {
-  const { getActiveGame, getGameTeams, calculateBoxScore } = useD2LStore();
+  const { getActiveGame, getGameTeams, calculateBoxScore, currentStaff, saveFinalGameCorrections, statEvents } = useD2LStore();
 
   const game = getActiveGame();
   const { homeTeam, awayTeam } = getGameTeams();
   const boxScore = calculateBoxScore(game?.id);
 
   const [copiedRecap, setCopiedRecap] = useState(false);
+  const [isUnlockOpen, setIsUnlockOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [draft, setDraft] = useState<Record<string, CorrectionStats>>({});
 
   if (!game || !homeTeam || !awayTeam) {
     return <div className="p-8 text-center text-gray-400">No active game selected.</div>;
@@ -48,6 +54,26 @@ Top Performers:
     setTimeout(() => setCopiedRecap(false), 3000);
   };
 
+  const startEditing = () => {
+    const lines = [...boxScore.home, ...boxScore.away];
+    setDraft(Object.fromEntries(lines.map((line) => [line.playerId, {
+      pts: line.pts, fgm: line.fgm, fga: line.fga, fg3m: line.fg3m, fg3a: line.fg3a,
+      ftm: line.ftm, fta: line.fta, oreb: line.oreb, dreb: line.dreb, ast: line.ast,
+      stl: line.stl, blk: line.blk, to: line.to, pf: line.pf,
+    }])));
+    setIsEditing(true);
+  };
+  const updateDraft = (playerId: string, key: keyof CorrectionStats, value: string) => {
+    setDraft((current) => ({ ...current, [playerId]: { ...current[playerId], [key]: Math.max(0, Number(value) || 0) } }));
+  };
+  const saveCorrections = async () => {
+    setIsSaving(true);
+    const result = await saveFinalGameCorrections(game.id, draft);
+    setIsSaving(false);
+    if (result.success) setIsEditing(false);
+    else alert(result.error || "Unable to save corrections.");
+  };
+
   const renderTeamBoxTable = (
     title: string,
     teamPlayers: PlayerBoxStat[],
@@ -59,6 +85,11 @@ Top Performers:
     const starters = teamPlayers.filter((p) => p.isStarter);
     const bench = teamPlayers.filter((p) => !p.isStarter);
 
+    const statInput = (player: PlayerBoxStat, key: keyof CorrectionStats, fallback: number) => isEditing ? (
+      <input aria-label={`${player.name} ${key}`} type="number" min="0" value={draft[player.playerId]?.[key] ?? fallback}
+        onChange={(event) => updateDraft(player.playerId, key, event.target.value)}
+        className="w-12 bg-black/50 border border-d2l-gold/50 rounded px-1 py-0.5 text-center text-white font-mono" />
+    ) : fallback;
     const renderRows = (list: PlayerBoxStat[]) => {
       return list.map((p) => (
         <tr key={p.playerId} className="border-b border-d2l-borderDark/40 hover:bg-d2l-forest/20 text-xs">
@@ -72,30 +103,30 @@ Top Performers:
           <td className="py-2 px-1.5 text-center text-gray-400">{p.position}</td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-300">{p.minutes}m</td>
           <td className="py-2 px-1.5 text-center font-mono font-black text-sm text-d2l-goldLight bg-black/20">
-            {p.pts}
+            {statInput(p, "pts", p.pts)}
           </td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-200">
-            {p.fgm}-{p.fga}
+            {statInput(p, "fgm", p.fgm)}-{statInput(p, "fga", p.fga)}
           </td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-400">{p.fgPct}%</td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-200">
-            {p.fg3m}-{p.fg3a}
+            {statInput(p, "fg3m", p.fg3m)}-{statInput(p, "fg3a", p.fg3a)}
           </td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-400">{p.fg3Pct}%</td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-200">
-            {p.ftm}-{p.fta}
+            {statInput(p, "ftm", p.ftm)}-{statInput(p, "fta", p.fta)}
           </td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-400">{p.ftPct}%</td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-300">{p.oreb}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-300">{p.dreb}</td>
+          <td className="py-2 px-1.5 text-center font-mono text-gray-300">{statInput(p, "oreb", p.oreb)}</td>
+          <td className="py-2 px-1.5 text-center font-mono text-gray-300">{statInput(p, "dreb", p.dreb)}</td>
           <td className="py-2 px-1.5 text-center font-mono font-bold text-white bg-black/20">
             {p.reb}
           </td>
-          <td className="py-2 px-1.5 text-center font-mono font-bold text-blue-300">{p.ast}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-indigo-300">{p.stl}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-purple-300">{p.blk}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-rose-300">{p.to}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-orange-300">{p.pf}</td>
+          <td className="py-2 px-1.5 text-center font-mono font-bold text-blue-300">{statInput(p, "ast", p.ast)}</td>
+          <td className="py-2 px-1.5 text-center font-mono text-indigo-300">{statInput(p, "stl", p.stl)}</td>
+          <td className="py-2 px-1.5 text-center font-mono text-purple-300">{statInput(p, "blk", p.blk)}</td>
+          <td className="py-2 px-1.5 text-center font-mono text-rose-300">{statInput(p, "to", p.to)}</td>
+          <td className="py-2 px-1.5 text-center font-mono text-orange-300">{statInput(p, "pf", p.pf)}</td>
         </tr>
       ));
     };
@@ -107,6 +138,17 @@ Top Performers:
           style={{ backgroundColor: `${teamColor}33` }}
         >
           <div className="flex items-center gap-2">
+            {game.status === "final" && currentStaff.role === "admin" && !isEditing && (
+              <button onClick={() => setIsUnlockOpen(true)} className="px-3.5 py-2 rounded-xl bg-d2l-cardDark hover:bg-d2l-court border border-d2l-gold/50 text-xs font-athletic font-bold flex items-center gap-1.5 transition">
+                <Pencil className="w-4 h-4 text-d2l-gold" /> Edit Stats
+              </button>
+            )}
+            {isEditing && (
+              <>
+                <button onClick={() => { setIsEditing(false); setDraft({}); }} disabled={isSaving} className="px-3.5 py-2 rounded-xl bg-gray-800 text-xs font-athletic font-bold">Cancel</button>
+                <button onClick={saveCorrections} disabled={isSaving} className="px-3.5 py-2 rounded-xl bg-d2l-gold text-d2l-dark text-xs font-athletic font-bold disabled:opacity-50">{isSaving ? "Saving..." : "Save Corrections"}</button>
+              </>
+            )}
             <TeamLogo logo={logo} name={teamName} size="sm" />
             <h3 className="font-athletic font-black text-lg text-white tracking-wider uppercase">
               {title}
@@ -347,6 +389,22 @@ Top Performers:
         awayTeam.logo,
         awayTeam.name
       )}
+
+      {game.status === "final" && (() => {
+        const corrections = statEvents.filter((event) => event.gameId === game.id && event.statType === ("CORRECTION" as any));
+        if (!corrections.length) return null;
+        return <div className="rounded-xl border border-d2l-gold/30 bg-d2l-panelDark p-4 text-xs">
+          <h3 className="font-athletic font-bold text-d2l-gold uppercase mb-2">Correction History</h3>
+          <div className="space-y-1 text-gray-300">{corrections.sort((a, b) => b.timestamp - a.timestamp).map((event) => {
+            let totals: CorrectionStats | undefined; let changes: { key: string; from: number; to: number }[] = [];
+            try { const note = JSON.parse(event.notes || "{}"); totals = note.totals; changes = note.changes || []; } catch {}
+            const player = [...boxScore.home, ...boxScore.away].find((line) => line.playerId === event.playerId);
+            return <p key={event.id}>Corrected by {event.staffName || "System Admin"} on {new Date(event.timestamp).toLocaleString()}: {player?.name || "Player"} {changes.map((change) => `${change.key.toUpperCase()} ${change.from} → ${change.to}`).join(", ") || `final line set to ${totals?.pts ?? 0} PTS`}.</p>;
+          })}</div>
+        </div>;
+      })()}
+
+      <ConfirmModal isOpen={isUnlockOpen} title="Unlock Final Stat Corrections" message="Enter the Admin Security PIN to edit this finalized game's box score. This does not resume live tracking." confirmText="Unlock Edit Mode" variant="warning" requirePin expectedPinHash={currentStaff.pin} onCancel={() => setIsUnlockOpen(false)} onConfirm={() => { setIsUnlockOpen(false); startEditing(); }} />
     </div>
   );
 };

@@ -270,14 +270,15 @@ export async function fetchAllLeagueData(): Promise<{
   }
 
   try {
-    const [leaguesRes, teamsRes, playersRes, gamesRes, eventsRes, staffRes, activeGameId] = await Promise.all([
+    // Always retrieve the complete canonical league payload independently of the
+    // active-game pointer. app_state is resolved only after these table reads.
+    const [leaguesRes, teamsRes, playersRes, gamesRes, eventsRes, staffRes] = await Promise.all([
       fetchAllRows("leagues"),
       fetchAllRows("teams"),
       fetchAllRows("players"),
       fetchAllRows("games"),
       fetchAllRows("stat_events"),
       fetchAllRows("staff_users"),
-      dbGetActiveGameId(),
     ]);
 
     const failures = [
@@ -291,6 +292,7 @@ export async function fetchAllLeagueData(): Promise<{
     const games = (gamesRes.rows || []).map(mapGameFromDb).sort((a, b) => {
       return new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime();
     });
+    const activeGameId = await dbGetActiveGameId();
 
     return {
       leagues: (leaguesRes.rows || []).map(mapLeagueFromDb),

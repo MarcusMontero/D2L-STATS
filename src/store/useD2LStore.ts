@@ -11,6 +11,7 @@ import {
   StaffRole,
   PlayerBoxStat,
   PlayerLeaderboardItem,
+  CorrectionStats,
 } from "../lib/types";
 import { soundFX, triggerHaptic } from "../lib/sound";
 import { supabase, isSupabaseConfigured } from "../lib/supabaseClient";
@@ -127,6 +128,7 @@ interface D2LState {
   undoLastStat: () => boolean;
   deleteStatEvent: (eventId: string) => void;
   editStatEvent: (eventId: string, updates: Partial<StatEvent>) => void;
+  saveFinalGameCorrections: (gameId: string, corrections: Record<string, CorrectionStats>) => Promise<{ success: boolean; error?: string }>;
 
   // Actions: Staff & Settings
   setCurrentStaff: (staff: StaffUser) => void;
@@ -159,6 +161,17 @@ const DEFAULT_STAFF: StaffUser = {
 };
 
 let loadGeneration = 0;
+
+function latestFinalCorrection(events: StatEvent[], playerId: string): CorrectionStats | undefined {
+  const correction = events
+    .filter((event) => event.playerId === playerId && event.statType === ("CORRECTION" as StatType))
+    .sort((a, b) => b.timestamp - a.timestamp)[0];
+  if (!correction?.notes) return undefined;
+  try {
+    const parsed = JSON.parse(correction.notes);
+    return parsed?.kind === "final_stat_correction" ? parsed.totals as CorrectionStats : undefined;
+  } catch { return undefined; }
+}
 
 export const useD2LStore = create<D2LState>()(
     (set, get) => ({
@@ -298,6 +311,23 @@ export const useD2LStore = create<D2LState>()(
           if (activeGameId && !games.some((g) => g.id === activeGameId)) {
             activeGameId = "";
           }
+          // app_state is only a shared pointer. A null/stale pointer must never
+          // hide a valid league from a newly opened browser. Pick the newest
+          // in-progress or completed game from the fully fetched games table,
+          // then repair the shared pointer for every connected device.
+          if (!activeGameId && games.length > 0) {
+            const preferredGames = games.filter((g) =>
+              g.status === "live" || g.status === "halftime" || g.status === "overtime" || g.status === "final"
+            );
+            const selectedGame = (preferredGames.length > 0 ? preferredGames : games)
+              .slice()
+              .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime())[0];
+            activeGameId = selectedGame.id;
+            const repair = await dbSetActiveGameId(activeGameId);
+            if (!repair.success) {
+              get().setToastMessage({ type: "warning", text: "Loaded games, but could not sync the active-game selection.", details: repair.error });
+            }
+          }
           const onCourt: Record<string, string[]> = {};
           teams.forEach((t) => {
             const teamStarters = players
@@ -324,12 +354,9 @@ export const useD2LStore = create<D2LState>()(
         } catch (err: any) {
           console.error("Failed to load data from Supabase:", err);
           if (gen !== loadGeneration) return;
+          // Preserve the last verified snapshot on an error. The UI remains in
+          // its loading/error state rather than replacing real data with zeros.
           set({
-            teams: [],
-            players: [],
-            games: [],
-            statEvents: [],
-            activeGameId: "",
             isDataLoaded: false,
             dataLoadError: err?.message || "Check network connection or RLS policies.",
           });
@@ -920,6 +947,49 @@ export const useD2LStore = create<D2LState>()(
         }));
       },
 
+      saveFinalGameCorrections: async (gameId, corrections) => {
+        const state = get();
+        const game = state.games.find((item) => item.id === gameId);
+        if (!game || game.status !== "final") return { success: false, error: "Only finalized games can be corrected." };
+
+        const currentLines = [...get().calculateBoxScore(gameId).home, ...get().calculateBoxScore(gameId).away];
+        const events: StatEvent[] = Object.entries(corrections).filter(([playerId, totals]) => {
+          const current = currentLines.find((line) => line.playerId === playerId);
+          return !current || Object.entries(totals).some(([key, value]) => current[key as keyof CorrectionStats] !== value);
+        }).map(([playerId, totals]) => {
+          const current = currentLines.find((line) => line.playerId === playerId);
+          const changes = Object.entries(totals).filter(([key, value]) => current?.[key as keyof CorrectionStats] !== value)
+            .map(([key, value]) => ({ key, from: current?.[key as keyof CorrectionStats] ?? 0, to: value }));
+          return ({
+          id: crypto.randomUUID(), gameId, playerId,
+          teamId: state.players.find((p) => p.id === playerId)?.teamId || "",
+          quarter: "Q4", gameClock: "FINAL", statType: "CORRECTION" as StatType,
+          points: 0, timestamp: Date.now(), synced: true,
+          staffName: state.currentStaff.name, staffRole: "admin",
+          notes: JSON.stringify({ kind: "final_stat_correction", totals, changes }),
+        });
+        });
+        try {
+          for (const event of events) {
+            const result = await dbInsertStatEvent(event);
+            if (!result.success) throw new Error(result.error || "Unable to save correction.");
+          }
+          // Final score is derived from the corrected player totals; status remains final.
+          const withCorrections = [...state.statEvents, ...events];
+          const sum = (teamId: string) => Object.entries(corrections).reduce((total, [playerId, value]) =>
+            (state.players.find((p) => p.id === playerId)?.teamId === teamId ? total + value.pts : total), 0);
+          const correctedGame = { ...game, homeScore: sum(game.homeTeamId), awayScore: sum(game.awayTeamId) };
+          const gameResult = await dbUpdateGame(gameId, correctedGame);
+          if (!gameResult.success) throw new Error(gameResult.error || "Unable to update final score.");
+          set({ statEvents: withCorrections, games: state.games.map((g) => g.id === gameId ? correctedGame : g) });
+          await get().loadFromSupabase();
+          return { success: true };
+        } catch (error: any) {
+          await get().loadFromSupabase();
+          return { success: false, error: error?.message || "Unable to save corrections." };
+        }
+      },
+
       setCurrentStaff: (staff) => set({ currentStaff: staff }),
 
       updateAdminPin: async (newPin: string) => {
@@ -1200,12 +1270,16 @@ export const useD2LStore = create<D2LState>()(
           });
 
           // Calculate percentages
-          const resultList = Object.values(statsMap).map((s) => ({
-            ...s,
-            fgPct: s.fga > 0 ? Math.round((s.fgm / s.fga) * 100) : 0,
-            fg3Pct: s.fg3a > 0 ? Math.round((s.fg3m / s.fg3a) * 100) : 0,
-            ftPct: s.fta > 0 ? Math.round((s.ftm / s.fta) * 100) : 0,
-          }));
+          const resultList = Object.values(statsMap).map((s) => {
+            const corrected = latestFinalCorrection(events, s.playerId);
+            const merged = corrected ? { ...s, ...corrected, reb: corrected.oreb + corrected.dreb } : s;
+            return {
+              ...merged,
+              fgPct: merged.fga > 0 ? Math.round((merged.fgm / merged.fga) * 100) : 0,
+              fg3Pct: merged.fg3a > 0 ? Math.round((merged.fg3m / merged.fg3a) * 100) : 0,
+              ftPct: merged.fta > 0 ? Math.round((merged.ftm / merged.fta) * 100) : 0,
+            };
+          });
 
           // Sort: Starters first, then Bench by points
           resultList.sort((a, b) => {
@@ -1354,6 +1428,20 @@ export const useD2LStore = create<D2LState>()(
               stl += 1;
             }
           });
+
+          // A final-game correction is an authoritative player snapshot. Rebuild
+          // this player's season totals from box scores so rankings use it too.
+          if (playerEvents.some((event) => event.statType === ("CORRECTION" as StatType))) {
+            pts = 0; fgm = 0; fga = 0; fg3m = 0; fg3a = 0; ftm = 0; fta = 0;
+            reb = 0; ast = 0; blk = 0; stl = 0;
+            distinctGameIds.forEach((gameId) => {
+              const score = get().calculateBoxScore(gameId);
+              const line = [...score.home, ...score.away].find((item) => item.playerId === player.id);
+              if (!line) return;
+              pts += line.pts; fgm += line.fgm; fga += line.fga; fg3m += line.fg3m; fg3a += line.fg3a;
+              ftm += line.ftm; fta += line.fta; reb += line.reb; ast += line.ast; blk += line.blk; stl += line.stl;
+            });
+          }
 
           const ppg = parseFloat((pts / gamesPlayed).toFixed(1));
           const rpg = parseFloat((reb / gamesPlayed).toFixed(1));

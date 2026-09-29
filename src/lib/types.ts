@@ -17,6 +17,12 @@ export type StatType =
   | "SUB_OUT"
   | "TIMEOUT";
 
+export interface CorrectionStats {
+  pts: number; fgm: number; fga: number; fg3m: number; fg3a: number;
+  ftm: number; fta: number; oreb: number; dreb: number; ast: number;
+  stl: number; blk: number; to: number; pf: number;
+}
+
 export type Quarter = "Q1" | "Q2" | "Q3" | "Q4" | "OT1" | "OT2";
 
 export type GameStatus = "scheduled" | "live" | "halftime" | "final" | "overtime";
