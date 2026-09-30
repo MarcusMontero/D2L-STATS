@@ -112,22 +112,9 @@ Top Performers:
             )}
           </td>
           <td className="py-2 px-1.5 text-center text-gray-400">{p.position}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-300">{p.minutes}m</td>
           <td className="py-2 px-1.5 text-center font-mono font-black text-sm text-d2l-goldLight bg-black/20">
             {statInput(p, "pts", p.pts)}
           </td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-200">
-            {statInput(p, "fgm", p.fgm)}-{statInput(p, "fga", p.fga)}
-          </td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-400">{p.fgPct}%</td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-200">
-            {statInput(p, "fg3m", p.fg3m)}-{statInput(p, "fg3a", p.fg3a)}
-          </td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-400">{p.fg3Pct}%</td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-200">
-            {statInput(p, "ftm", p.ftm)}-{statInput(p, "fta", p.fta)}
-          </td>
-          <td className="py-2 px-1.5 text-center font-mono text-gray-400">{p.ftPct}%</td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-300">{statInput(p, "oreb", p.oreb)}</td>
           <td className="py-2 px-1.5 text-center font-mono text-gray-300">{statInput(p, "dreb", p.dreb)}</td>
           <td className="py-2 px-1.5 text-center font-mono font-bold text-white bg-black/20">
@@ -136,8 +123,6 @@ Top Performers:
           <td className="py-2 px-1.5 text-center font-mono font-bold text-blue-300">{statInput(p, "ast", p.ast)}</td>
           <td className="py-2 px-1.5 text-center font-mono text-indigo-300">{statInput(p, "stl", p.stl)}</td>
           <td className="py-2 px-1.5 text-center font-mono text-purple-300">{statInput(p, "blk", p.blk)}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-rose-300">{statInput(p, "to", p.to)}</td>
-          <td className="py-2 px-1.5 text-center font-mono text-orange-300">{statInput(p, "pf", p.pf)}</td>
         </tr>
       ));
     };
@@ -176,28 +161,19 @@ Top Performers:
               <tr className="bg-black/40 text-[10px] font-athletic uppercase text-gray-400 border-b border-d2l-borderDark">
                 <th className="py-2 px-2 text-left">Player</th>
                 <th className="py-2 px-1.5 text-center">Pos</th>
-                <th className="py-2 px-1.5 text-center">Min</th>
                 <th className="py-2 px-1.5 text-center text-d2l-goldLight">PTS</th>
-                <th className="py-2 px-1.5 text-center">FGM-A</th>
-                <th className="py-2 px-1.5 text-center">FG%</th>
-                <th className="py-2 px-1.5 text-center">3PM-A</th>
-                <th className="py-2 px-1.5 text-center">3P%</th>
-                <th className="py-2 px-1.5 text-center">FTM-A</th>
-                <th className="py-2 px-1.5 text-center">FT%</th>
                 <th className="py-2 px-1.5 text-center">OREB</th>
                 <th className="py-2 px-1.5 text-center">DREB</th>
                 <th className="py-2 px-1.5 text-center text-white">REB</th>
                 <th className="py-2 px-1.5 text-center text-blue-300">AST</th>
                 <th className="py-2 px-1.5 text-center text-indigo-300">STL</th>
                 <th className="py-2 px-1.5 text-center text-purple-300">BLK</th>
-                <th className="py-2 px-1.5 text-center text-rose-300">TO</th>
-                <th className="py-2 px-1.5 text-center text-orange-300">PF</th>
               </tr>
             </thead>
             <tbody>
               {/* Starters header */}
               <tr className="bg-d2l-forest/40 text-[10px] font-bold text-d2l-gold px-2">
-                <td colSpan={18} className="py-1 px-2 uppercase tracking-wider font-athletic">
+                <td colSpan={9} className="py-1 px-2 uppercase tracking-wider font-athletic">
                   ★ Starters
                 </td>
               </tr>
@@ -205,7 +181,7 @@ Top Performers:
 
               {/* Bench header */}
               <tr className="bg-d2l-court/60 text-[10px] font-bold text-gray-400 px-2">
-                <td colSpan={18} className="py-1 px-2 uppercase tracking-wider font-athletic">
+                <td colSpan={9} className="py-1 px-2 uppercase tracking-wider font-athletic">
                   Bench
                 </td>
               </tr>
@@ -215,30 +191,15 @@ Top Performers:
               <tr className="bg-black/60 font-mono font-bold text-xs text-white border-t-2 border-d2l-gold/40">
                 <td className="py-2.5 px-2 uppercase font-athletic text-d2l-gold">TOTALS</td>
                 <td className="text-center">-</td>
-                <td className="text-center">200m</td>
                 <td className="text-center text-d2l-gold font-black text-sm bg-d2l-forest/60">
                   {totals.pts}
                 </td>
-                <td className="text-center">
-                  {totals.fgm}-{totals.fga}
-                </td>
-                <td className="text-center text-gray-300">{totals.fgPct}%</td>
-                <td className="text-center">
-                  {totals.fg3m}-{totals.fg3a}
-                </td>
-                <td className="text-center text-gray-300">{totals.fg3Pct}%</td>
-                <td className="text-center">
-                  {totals.ftm}-{totals.fta}
-                </td>
-                <td className="text-center text-gray-300">{totals.ftPct}%</td>
                 <td className="text-center">{totals.oreb}</td>
                 <td className="text-center">{totals.dreb}</td>
                 <td className="text-center text-white bg-d2l-forest/40">{totals.reb}</td>
                 <td className="text-center text-blue-300">{totals.ast}</td>
                 <td className="text-center text-indigo-300">{totals.stl}</td>
                 <td className="text-center text-purple-300">{totals.blk}</td>
-                <td className="text-center text-rose-300">{totals.to}</td>
-                <td className="text-center text-orange-300">{totals.pf}</td>
               </tr>
             </tbody>
           </table>

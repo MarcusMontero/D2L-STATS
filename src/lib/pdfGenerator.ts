@@ -147,49 +147,31 @@ export function exportBoxScorePDF(
     return players.map((p) => [
       `#${p.jerseyNumber} ${p.name}${p.isStarter ? " *" : ""}`,
       p.position,
-      p.minutes.toString(),
       p.pts.toString(),
-      `${p.fgm}-${p.fga}`,
-      `${p.fgPct}%`,
-      `${p.fg3m}-${p.fg3a}`,
-      `${p.fg3Pct}%`,
-      `${p.ftm}-${p.fta}`,
-      `${p.ftPct}%`,
       p.oreb.toString(),
       p.dreb.toString(),
       p.reb.toString(),
       p.ast.toString(),
       p.stl.toString(),
       p.blk.toString(),
-      p.to.toString(),
-      p.pf.toString(),
     ]);
   };
 
   const tableHeaders = [
-    ["PLAYER", "POS", "MIN", "PTS", "FG", "FG%", "3PT", "3P%", "FT", "FT%", "OR", "DR", "REB", "AST", "STL", "BLK", "TO", "PF"],
+    ["PLAYER", "POS", "PTS", "OR", "DR", "REB", "AST", "STL", "BLK"],
   ];
 
   const homeRows = formatPlayerRows(boxScore.home);
   homeRows.push([
     "TOTALS",
     "-",
-    "200",
     boxScore.homeTotals.pts.toString(),
-    `${boxScore.homeTotals.fgm}-${boxScore.homeTotals.fga}`,
-    `${boxScore.homeTotals.fgPct}%`,
-    `${boxScore.homeTotals.fg3m}-${boxScore.homeTotals.fg3a}`,
-    `${boxScore.homeTotals.fg3Pct}%`,
-    `${boxScore.homeTotals.ftm}-${boxScore.homeTotals.fta}`,
-    `${boxScore.homeTotals.ftPct}%`,
     boxScore.homeTotals.oreb.toString(),
     boxScore.homeTotals.dreb.toString(),
     boxScore.homeTotals.reb.toString(),
     boxScore.homeTotals.ast.toString(),
     boxScore.homeTotals.stl.toString(),
     boxScore.homeTotals.blk.toString(),
-    boxScore.homeTotals.to.toString(),
-    boxScore.homeTotals.pf.toString(),
   ]);
 
   autoTable(doc, {
@@ -201,7 +183,7 @@ export function exportBoxScorePDF(
     columnStyles: {
       0: { halign: "left", cellWidth: 36 },
       1: { cellWidth: 8 },
-      3: { fontStyle: "bold" },
+      2: { fontStyle: "bold" },
     },
     headStyles: { fillColor: [11, 59, 36], textColor: [255, 255, 255] },
     alternateRowStyles: { fillColor: [248, 250, 248] },
@@ -221,22 +203,13 @@ export function exportBoxScorePDF(
   awayRows.push([
     "TOTALS",
     "-",
-    "200",
     boxScore.awayTotals.pts.toString(),
-    `${boxScore.awayTotals.fgm}-${boxScore.awayTotals.fga}`,
-    `${boxScore.awayTotals.fgPct}%`,
-    `${boxScore.awayTotals.fg3m}-${boxScore.awayTotals.fg3a}`,
-    `${boxScore.awayTotals.fg3Pct}%`,
-    `${boxScore.awayTotals.ftm}-${boxScore.awayTotals.fta}`,
-    `${boxScore.awayTotals.ftPct}%`,
     boxScore.awayTotals.oreb.toString(),
     boxScore.awayTotals.dreb.toString(),
     boxScore.awayTotals.reb.toString(),
     boxScore.awayTotals.ast.toString(),
     boxScore.awayTotals.stl.toString(),
     boxScore.awayTotals.blk.toString(),
-    boxScore.awayTotals.to.toString(),
-    boxScore.awayTotals.pf.toString(),
   ]);
 
   autoTable(doc, {
@@ -248,7 +221,7 @@ export function exportBoxScorePDF(
     columnStyles: {
       0: { halign: "left", cellWidth: 36 },
       1: { cellWidth: 8 },
-      3: { fontStyle: "bold" },
+      2: { fontStyle: "bold" },
     },
     headStyles: { fillColor: [26, 54, 93], textColor: [255, 255, 255] },
     alternateRowStyles: { fillColor: [248, 250, 252] },
